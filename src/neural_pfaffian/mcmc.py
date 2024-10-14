@@ -1,17 +1,17 @@
 from typing import Callable, NamedTuple, Protocol, Sequence
+
 import jax
 import jax.numpy as jnp
 import numpy as np
-from jaxtyping import Array, Integer, Float
+from jaxtyping import Array, Float, Integer
 
 from neural_pfaffian.nn.wave_function import (
     GeneralizedWaveFunction,
-    WaveFunctionParameters,
     LogAmplitude,
+    WaveFunctionParameters,
 )
-from neural_pfaffian.systems import Systems, Electrons
-from neural_pfaffian.utils.jax_utils import pmean_if_pmap, jit
-
+from neural_pfaffian.systems import Electrons, Systems
+from neural_pfaffian.utils.jax_utils import jit, pmean_if_pmap
 
 PMove = Float[Array, 'n_mols']
 Width = Float[Array, 'n_mols']

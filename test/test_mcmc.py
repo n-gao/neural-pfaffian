@@ -1,7 +1,5 @@
 import jax
 import jax.numpy as jnp
-import pytest
-
 from fixtures import *  # noqa: F403
 
 from neural_pfaffian.mcmc import make_mcmc, make_width_scheduler

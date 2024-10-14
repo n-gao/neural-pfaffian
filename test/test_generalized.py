@@ -1,9 +1,8 @@
 import jax
 import jax.numpy as jnp
 import pytest
-from numpy.testing import assert_allclose
-
 from fixtures import *  # noqa: F403
+from numpy.testing import assert_allclose
 
 
 def test_param_dtype(generalized_wf_params):

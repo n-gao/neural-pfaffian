@@ -1,8 +1,8 @@
 import jax
-import numpy as np
 import jax.numpy as jnp
-from numpy.testing import assert_allclose
+import numpy as np
 from fixtures import *  # noqa: F403
+from numpy.testing import assert_allclose
 
 
 def test_fwd_and_bwd(wf_apply, wf_params, systems):

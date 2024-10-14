@@ -1,8 +1,8 @@
-import pytest
 import jax
 import jax.numpy as jnp
 from fixtures import *  # noqa: F403
-from neural_pfaffian.nn.module import ParamMeta, ParamTypes
+
+from neural_pfaffian.nn.module import ParamTypes
 
 
 def test_param_dtypes(meta_gnn, one_system):
