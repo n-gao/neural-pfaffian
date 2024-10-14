@@ -95,13 +95,13 @@ class FermiNetFeatures(ReparamModule):
         h_one = log1p_rescale(systems.elec_nuc_dists)
         kernel = self.reparam(
             'kernel',
-            jnn.initializers.normal(1 / np.sqrt(h_one.shape[-1])),
+            jnn.initializers.normal(1 / np.sqrt(h_one.shape[-1]), jnp.float32),
             (systems.n_nuc, h_one.shape[-1], self.out_dim),
             param_type=ParamTypes.NUCLEI,
         )[0][nuc_idx]
         bias = self.reparam(
             'bias',
-            jnn.initializers.zeros,
+            jnn.initializers.constant(0, jnp.float32),
             (systems.n_nuc, self.out_dim),
             param_type=ParamTypes.NUCLEI,
         )[0][nuc_idx]

@@ -17,8 +17,8 @@ def one_system():
     return Systems(
         spins=((2, 2),),
         charges=((4,),),
-        electrons=jax.random.normal(jax.random.key(0), (4, 3)),
-        nuclei=jax.random.normal(jax.random.key(1), (1, 3)),
+        electrons=jax.random.normal(jax.random.key(0), (4, 3), dtype=jnp.float32),
+        nuclei=jax.random.normal(jax.random.key(1), (1, 3), dtype=jnp.float32),
     )
 
 
@@ -27,14 +27,22 @@ def two_systems():
     return Systems(
         spins=((2, 2), (3, 3)),
         charges=((4,), (2, 1)),
-        electrons=jax.random.normal(jax.random.key(0), (10, 3)),
-        nuclei=jax.random.normal(jax.random.key(1), (3, 3)),
+        electrons=jax.random.normal(jax.random.key(0), (10, 3), dtype=jnp.float32),
+        nuclei=jax.random.normal(jax.random.key(1), (3, 3), dtype=jnp.float32),
     )
 
 
 @pytest.fixture(params=['one_system', 'two_systems'])
 def systems(request):
     return request.getfixturevalue(request.param)
+
+
+@pytest.fixture
+def systems_float64(systems):
+    return systems.replace(
+        electrons=systems.electrons.astype(jnp.float64),
+        nuclei=systems.nuclei.astype(jnp.float64),
+    )
 
 
 @pytest.fixture
@@ -107,10 +115,14 @@ def jastrow_models():
 
 
 @pytest.fixture
-def systems_embedding_params(systems: Systems, embedding_model: nn.Module):
+def embedding_params(embedding_model: nn.Module, systems: Systems):
     params = embedding_model.init(jax.random.key(42), systems)
-    fwd_pass = jax.jit(embedding_model.apply)
-    return systems, fwd_pass, params
+    return params
+
+
+@pytest.fixture
+def embedding_fwdpass(embedding_model: nn.Module):
+    return jax.jit(embedding_model.apply)
 
 
 @pytest.fixture
@@ -120,7 +132,15 @@ def wave_function(embedding_model, orbital_model, jastrow_models):
 
 
 @pytest.fixture
-def systems_wf_params(wave_function: WaveFunction, systems: Systems):
-    params = wave_function.init(jax.random.key(42), systems)
-    fwd_pass = jax.jit(wave_function.apply)
-    return systems, fwd_pass, params
+def wf_params(wave_function: WaveFunction, systems: Systems):
+    return wave_function.init(jax.random.key(42), systems)
+
+
+@pytest.fixture
+def wf_signed(wave_function: WaveFunction):
+    return jax.jit(wave_function.signed)
+
+
+@pytest.fixture
+def wf_apply(wave_function: WaveFunction):
+    return jax.jit(wave_function.apply)

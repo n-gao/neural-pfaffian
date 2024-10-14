@@ -91,13 +91,13 @@ class MoonEmbedding(ReparamModule):
 
         kernel = self.reparam(
             'kernel',
-            jax.nn.initializers.normal(1 / 2),
+            jax.nn.initializers.normal(1 / 2, dtype=jnp.float32),
             (systems.n_nuc, 4, self.embedding_dim),
             param_type=ParamTypes.NUCLEI,
         )[0][systems.elec_nuc_idx[1]]
         bias = self.reparam(
             'bias',
-            jax.nn.initializers.normal(1.0),
+            jax.nn.initializers.normal(1.0, dtype=jnp.float32),
             (systems.n_nuc, self.embedding_dim),
             param_type=ParamTypes.NUCLEI,
         )[0][systems.elec_nuc_idx[1]]
@@ -163,7 +163,7 @@ class Update(ReparamModule):
         up_in, down_in = nuc_emb
         bias = self.reparam(
             'bias',
-            jax.nn.initializers.normal(0.1),
+            jax.nn.initializers.normal(0.1, dtype=jnp.float32),
             (self.out_dim,),
             param_type=ParamTypes.NUCLEI,
         )[0]

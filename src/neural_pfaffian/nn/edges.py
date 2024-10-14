@@ -12,6 +12,10 @@ from neural_pfaffian.nn.utils import Activation
 from neural_pfaffian.systems import Systems
 
 
+def shifted_normal(shift: float = 0, scale: float = 1):
+    return lambda key, shape: jax.random.normal(key, shape, jnp.float32) * scale + shift
+
+
 class Rbf(ReparamModule):
     out_dim: int
     max_charge: int | None
@@ -38,7 +42,7 @@ class ExponentialRbf(Rbf):
             self.static_or_reparam(
                 'sigma',
                 systems,
-                lambda key, shape: jax.random.normal(key, shape) + self.sigma_init,
+                shifted_normal(self.sigma_init),
                 (self.out_dim,),
                 self.max_charge,
             )
@@ -60,7 +64,7 @@ class BesselRbf(Rbf):
             self.static_or_reparam(
                 'sigma',
                 systems,
-                lambda key, shape: jax.random.normal(key, shape) + self.sigma_init,
+                shifted_normal(self.sigma_init),
                 (self.out_dim,),
                 self.max_charge,
             )
@@ -97,14 +101,14 @@ class EdgeEmbedding(ReparamModule):
         bias = self.static_or_reparam(
             'bias',
             systems,
-            jax.nn.initializers.normal(2),
+            jax.nn.initializers.normal(2, jnp.float32),
             (self.hidden_dim,),
             self.max_charge,
         )
         kernel = self.static_or_reparam(
             'kernel',
             systems,
-            jax.nn.initializers.normal(1 / 2),
+            jax.nn.initializers.normal(1 / 2, jnp.float32),
             (4, self.hidden_dim),
             self.max_charge,
         )

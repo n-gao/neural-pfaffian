@@ -36,6 +36,8 @@ addopts = "-n auto"
 
 [tool.pytest_env]
 JAX_PLATFORMS = "cpu"
+JAX_ENABLE_X64 = "True"
+# JAX_DEFAULT_DTYPE_BITS = "32"
 
 [tool.ruff]
 line-length = 90

@@ -40,7 +40,7 @@ class PfaffianOrbitals(PyTreeNode):
     antisymmetrizer: Float[Array, 'mols det orbitals orbitals']
 
 
-class Orbitals(ReparamModule):
+class PerNucOrbitals(ReparamModule):
     determinants: int
     orb_per_nuc: int
     envelope: Envelope
@@ -50,7 +50,7 @@ class Orbitals(ReparamModule):
         inp_dim = elec_embeddings.shape[-1]
         W, W_meta = self.reparam(
             'projection',
-            jax.nn.initializers.normal(1 / jnp.sqrt(inp_dim)),
+            jax.nn.initializers.normal(1 / jnp.sqrt(inp_dim), dtype=jnp.float32),
             (
                 systems.n_nuc,
                 self.orb_per_nuc,
@@ -63,7 +63,7 @@ class Orbitals(ReparamModule):
         env = self.envelope(systems)
 
         result: list[Array] = []
-        for emb, env, W, (_, charges) in zip(
+        for emb, env, W, (spins, charges) in zip(
             systems.group(elec_embeddings, chunk_electron),
             env,
             systems.group(W, W_meta.param_type.value.chunk_fn),
@@ -71,12 +71,13 @@ class Orbitals(ReparamModule):
         ):
             n_nuc = len(charges)
             n_orb = self.orb_per_nuc * n_nuc
+            norm = (max(spins) / n_orb) ** 0.5
 
             @jax.vmap  # vmap over different molecules
             def _orbitals(emb, env, W):
                 env = einops.rearrange(env, 'e (o d) -> e o d', o=n_orb)
                 W = W.reshape(n_orb, inp_dim, self.determinants)
-                return jnp.einsum('ei,oid,eod->eod', emb, W, env)
+                return jnp.einsum('ei,oid,eod->eod', emb, W, env) * norm
 
             result.append(_orbitals(emb, env, W))
         return result
@@ -104,7 +105,7 @@ class Pfaffian(
     def __call__(self, systems: Systems, elec_embeddings: Float[Array, 'electrons dim']):
         A, A_meta = self.reparam(
             'antisymmetrizer',
-            jax.nn.initializers.normal(1),
+            jax.nn.initializers.normal(1, dtype=jnp.float32),
             (systems.n_nn, self.orb_per_nuc, self.orb_per_nuc, self.determinants),
             param_type=ParamTypes.NUCLEI_NUCLEI,
             bias=False,
@@ -115,13 +116,13 @@ class Pfaffian(
             out_dim=self.orb_per_nuc * self.determinants, out_per_nuc=True
         )
 
-        same_orbs = Orbitals(self.determinants, self.orb_per_nuc, env.clone(pi_init=1.0))(
-            systems, elec_embeddings
-        )
+        same_orbs = PerNucOrbitals(
+            self.determinants, self.orb_per_nuc, env.clone(pi_init=1.0)
+        )(systems, elec_embeddings)
         # init diff orbs with 0
-        diff_orbs = Orbitals(self.determinants, self.orb_per_nuc, env.clone(pi_init=0.0))(
-            systems, elec_embeddings
-        )
+        diff_orbs = PerNucOrbitals(
+            self.determinants, self.orb_per_nuc, env.clone(pi_init=0.0)
+        )(systems, elec_embeddings)
 
         result = []
         for diag, offdiag, A, (spins, charges) in zip(

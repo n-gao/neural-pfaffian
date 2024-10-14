@@ -27,14 +27,14 @@ class FullEnvelope(Envelope):
         leading_dim = systems.n_nn if self.out_per_nuc else systems.n_nuc
         pi, pi_meta = self.reparam(
             'pi',
-            jax.nn.initializers.constant(self.pi_init),
+            jax.nn.initializers.constant(self.pi_init, dtype=jnp.float32),
             (leading_dim, self.out_dim),
             param_type=param_type,
             bias=False,
         )
         sigma, sigma_meta = self.reparam(
             'sigma',
-            jax.nn.initializers.ones,
+            jax.nn.initializers.constant(1, dtype=jnp.float32),
             (leading_dim, self.out_dim),
             param_type=param_type,
             bias=True,
@@ -75,14 +75,14 @@ class EfficientEnvelope(Envelope):
         leading_dim = systems.n_nn if self.out_per_nuc else systems.n_nuc
         pi, pi_meta = self.reparam(
             'pi',
-            jax.nn.initializers.constant(self.pi_init),
+            jax.nn.initializers.constant(self.pi_init, dtype=jnp.float32),
             (leading_dim, self.out_dim, self.env_per_nuc),
             param_type=param_type,
             bias=False,
         )
         sigma, sigma_meta = self.reparam(
             'sigma',
-            jax.nn.initializers.ones,
+            jax.nn.initializers.constant(1, dtype=jnp.float32),
             (systems.n_nuc, self.env_per_nuc),
             param_type=ParamTypes.NUCLEI,
             bias=True,
