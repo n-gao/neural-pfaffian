@@ -1,5 +1,6 @@
 import jax
 import jax.numpy as jnp
+import numpy as np
 from fixtures import *  # noqa: F403
 
 from neural_pfaffian.mcmc import make_mcmc, make_width_scheduler
@@ -20,3 +21,7 @@ def test_mcmc(generalized_wf, generalized_wf_params, batched_systems):
     assert result_state.i.dtype == state.i.dtype
     assert result_state.pmoves.shape == state.pmoves.shape
     assert result_state.pmoves.dtype == state.pmoves.dtype
+    assert np.all(np.isfinite(result_systems.electrons))
+    assert np.all(np.isfinite(result_state.width))
+    assert np.all(np.isfinite(result_state.i))
+    assert np.all(np.isfinite(result_state.pmoves))

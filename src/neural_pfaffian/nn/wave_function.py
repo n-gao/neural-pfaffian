@@ -2,6 +2,8 @@ from typing import Generic, Protocol, Self, Sequence, TypeVar
 
 import jax
 import jax.numpy as jnp
+import jax.tree_util as jtu
+from flax.core import unfreeze
 from flax.struct import PyTreeNode, field
 from jaxtyping import Array, Float, PyTree
 from typing_extensions import NotRequired, TypedDict
@@ -162,7 +164,7 @@ class GeneralizedWaveFunction(PyTreeNode, Generic[Orb, S]):
         if self._reparam is not None:
             return self._reparam
         if self.meta_network is not None:
-            return self.meta_network.apply(params.meta_network, systems)
+            return unfreeze(self.meta_network.apply(params.meta_network, systems))
         else:
             return params.meta_network
 
@@ -203,3 +205,14 @@ class GeneralizedWaveFunction(PyTreeNode, Generic[Orb, S]):
             reparam_meta=self.reparam_meta,
             _reparam=self.reparams(params, systems),
         )
+
+    def group_reparams(self, systems: Systems, reparams: PyTree[Array]):
+        params, tree_def = jtu.tree_flatten(reparams)
+        metas: list[ParamMeta] = tree_def.flatten_up_to(self.reparam_meta)
+        for tensors in zip(
+            *[
+                systems.group(p, meta.param_type.value.chunk_fn)
+                for p, meta in zip(params, metas)
+            ]
+        ):
+            yield jtu.tree_unflatten(tree_def, tensors)
