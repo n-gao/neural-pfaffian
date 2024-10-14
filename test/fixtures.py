@@ -5,13 +5,16 @@ import pytest
 
 from neural_pfaffian.nn.envelopes import EfficientEnvelope, FullEnvelope
 from neural_pfaffian.nn.ferminet import FermiNet
+from neural_pfaffian.nn.meta_network import MetaGNN
+from neural_pfaffian.nn.module import ParamMeta, ParamTypes
 from neural_pfaffian.nn.moon import Moon
 from neural_pfaffian.nn.orbitals import Pfaffian
 from neural_pfaffian.nn.psiformer import PsiFormer
-from neural_pfaffian.nn.wave_function import WaveFunction
+from neural_pfaffian.nn.wave_function import GeneralizedWaveFunction, WaveFunction
 from neural_pfaffian.systems import Systems
 
 
+# Systems
 @pytest.fixture
 def one_system():
     return Systems(
@@ -38,6 +41,11 @@ def systems(request):
 
 
 @pytest.fixture
+def batched_systems(systems):
+    return systems.replace(electrons=systems.electrons[None, ...])
+
+
+@pytest.fixture
 def systems_float64(systems):
     return systems.replace(
         electrons=systems.electrons.astype(jnp.float64),
@@ -45,6 +53,7 @@ def systems_float64(systems):
     )
 
 
+# Embedding
 @pytest.fixture
 def ferminet():
     return FermiNet(
@@ -84,6 +93,18 @@ def embedding_model(request):
 
 
 @pytest.fixture
+def embedding_params(embedding_model: nn.Module, systems: Systems):
+    params = embedding_model.lazy_init(jax.random.key(42), systems)
+    return params
+
+
+@pytest.fixture
+def embedding_fwdpass(embedding_model: nn.Module):
+    return jax.jit(embedding_model.apply)
+
+
+# Enveloeps
+@pytest.fixture
 def full_envelope():
     return FullEnvelope(1, 1, True)
 
@@ -98,6 +119,7 @@ def envelope(request):
     return request.getfixturevalue(request.param)
 
 
+# Orbitals
 @pytest.fixture
 def pfaffian(envelope):
     return Pfaffian(2, 4, envelope, 10, 0.1, 1.0, 1.0)
@@ -109,22 +131,13 @@ def orbital_model(request, envelope):
     return request.getfixturevalue(request.param)
 
 
+# Jastrows
 @pytest.fixture
 def jastrow_models():
     return []
 
 
-@pytest.fixture
-def embedding_params(embedding_model: nn.Module, systems: Systems):
-    params = embedding_model.init(jax.random.key(42), systems)
-    return params
-
-
-@pytest.fixture
-def embedding_fwdpass(embedding_model: nn.Module):
-    return jax.jit(embedding_model.apply)
-
-
+# Wave Function
 @pytest.fixture
 def wave_function(embedding_model, orbital_model, jastrow_models):
     wf = WaveFunction(embedding_model, orbital_model, jastrow_models)
@@ -144,3 +157,83 @@ def wf_signed(wave_function: WaveFunction):
 @pytest.fixture
 def wf_apply(wave_function: WaveFunction):
     return jax.jit(wave_function.apply)
+
+
+# MetaGNN
+@pytest.fixture
+def meta_gnn():
+    return MetaGNN(
+        out_structure=None,
+        message_dim=4,
+        embedding_dim=8,
+        num_layers=2,
+        activation=jnp.tanh,
+        n_rbf=4,
+        charges=(1, 2, 3, 4, 5, 6, 7, 8, 9, 10),
+    )
+
+
+@pytest.fixture
+def global_meta():
+    return ParamMeta(
+        param_type=ParamTypes.GLOBAL,
+        shape_and_dtype=jax.ShapeDtypeStruct((4,), jnp.float32),
+        mean=0,
+        std=1,
+        bias=True,
+        chunk_axis=None,
+    )
+
+
+@pytest.fixture
+def nuclei_meta():
+    return ParamMeta(
+        param_type=ParamTypes.NUCLEI,
+        shape_and_dtype=jax.ShapeDtypeStruct((3,), jnp.float32),
+        mean=0,
+        std=1,
+        bias=True,
+        chunk_axis=None,
+    )
+
+
+@pytest.fixture
+def nuclei_nuclei_meta():
+    return ParamMeta(
+        param_type=ParamTypes.NUCLEI_NUCLEI,
+        shape_and_dtype=jax.ShapeDtypeStruct((5,), jnp.float32),
+        mean=0,
+        std=1,
+        bias=False,
+        chunk_axis=None,
+    )
+
+
+@pytest.fixture
+def chunked_meta():
+    return ParamMeta(
+        param_type=ParamTypes.NUCLEI,
+        shape_and_dtype=jax.ShapeDtypeStruct((3, 6), jnp.float32),
+        mean=0,
+        std=1,
+        bias=True,
+        chunk_axis=0,
+    )
+
+
+@pytest.fixture(
+    params=['global_meta', 'nuclei_meta', 'nuclei_nuclei_meta', 'chunked_meta']
+)
+def out_meta(request):
+    return request.getfixturevalue(request.param)
+
+
+# Generalized Wave fucntion
+@pytest.fixture
+def generalized_wf(wave_function, meta_gnn):
+    return GeneralizedWaveFunction.create(wave_function, meta_gnn)
+
+
+@pytest.fixture
+def generalized_wf_params(generalized_wf: GeneralizedWaveFunction, one_system: Systems):
+    return generalized_wf.init(jax.random.key(42), one_system)

@@ -158,13 +158,14 @@ class Update(ReparamModule):
 
     @nn.compact
     def __call__(self, nuc_emb: NucEmbeddings) -> NucEmbeddings:
+        n_nuc = nuc_emb[0].shape[0]
         same = nn.Dense(self.out_dim)
         diff = nn.Dense(self.out_dim)
         up_in, down_in = nuc_emb
         bias = self.reparam(
             'bias',
             jax.nn.initializers.normal(0.1, dtype=jnp.float32),
-            (self.out_dim,),
+            (n_nuc, self.out_dim),
             param_type=ParamTypes.NUCLEI,
         )[0]
         return tuple(

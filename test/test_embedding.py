@@ -9,10 +9,12 @@ def test_fwd_and_bwd(embedding_fwdpass, embedding_params, systems):
     params = embedding_params
     learnable_parameters = params['params']
 
+    @jax.jit
+    @jax.value_and_grad
     def fwd_sum(p, systems):
         return embedding_fwdpass({**params, 'params': p}, systems).sum()
 
-    emb_sum, grad = jax.value_and_grad(fwd_sum, argnums=0)(learnable_parameters, systems)
+    emb_sum, grad = fwd_sum(learnable_parameters, systems)
     assert isinstance(emb_sum, jax.Array)
     assert np.isfinite(emb_sum).all()
 

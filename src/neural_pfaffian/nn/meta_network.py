@@ -115,7 +115,9 @@ class OutputBias(nn.Module):
                 r_emb = nn.Embed(self.n_charges, out_dim, dtype)(systems.flat_charges)
                 bias = (s_emb[idx_i] + r_emb[idx_j]) / jnp.sqrt(2)
             case ParamTypes.GLOBAL:
-                bias = nn.Embed(1, out_dim, dtype)(jnp.zeros((systems.n_mols,)))
+                bias = nn.Embed(1, out_dim, dtype)(
+                    jnp.zeros((systems.n_mols,), dtype=jnp.int64)
+                )
             case _:
                 raise ValueError(f'Unknown param type {self.meta.param_type}')
         return bias.reshape(-1, *shape) * jnp.asarray(self.meta.std, dtype=dtype)
@@ -183,9 +185,11 @@ class ParamOut(nn.Module):
         else:
             result = result.reshape(-1, *shape)
         # Scale std
-        result *= self.param('std', jax.nn.initializers.constant(self.meta.std), ())
+        result *= self.param(
+            'std', jax.nn.initializers.constant(self.meta.std, jnp.float32), ()
+        )
         # Add bias
-        result = (result + bias) / jnp.sqrt(2)
+        result = result + bias / jnp.sqrt(2)
         # Add mean
         result += jnp.asarray(self.meta.mean, dtype=dtype)
         return result

@@ -57,7 +57,11 @@ class ReparamModule(nn.Module):
             return init_fn(self.make_rng(), *args)
 
         parameter = self.variable(REPARAM_KEY, name, init_with_random, *init_args).value
-        # TODO: sanity check the parameter shape like self.param
+        exp_shape = jax.eval_shape(lambda: init_fn(jax.random.key(0), *init_args))
+        if parameter.shape != exp_shape.shape:
+            raise ValueError(
+                f'Expected shape {exp_shape.shape} for parameter {name}, got {parameter.shape}'
+            )
 
         def array_to_meta(array: A):
             # Remove the first dimension which will be taken by the system configuration

@@ -116,6 +116,7 @@ class GeneralizedWaveFunction(PyTreeNode, Generic[Orb, S]):
     wave_function: WaveFunction[Orb, S] = field(pytree_node=False)
     meta_network: MetaNetworkP | None = field(pytree_node=False)
     reparam_meta: PyTree[ParamMeta] = field(pytree_node=False)
+    _reparam: PyTree[Array] | None = None
 
     @classmethod
     def create(
@@ -157,7 +158,9 @@ class GeneralizedWaveFunction(PyTreeNode, Generic[Orb, S]):
         del params[REPARAM_KEY]
         return WaveFunctionParameters(params, meta_params)
 
-    def reparams(self, params: WaveFunctionParameters, systems: Systems):
+    def reparams(self, params: WaveFunctionParameters, systems: Systems) -> PyTree[Array]:
+        if self._reparam is not None:
+            return self._reparam
         if self.meta_network is not None:
             return self.meta_network.apply(params.meta_network, systems)
         else:
@@ -191,4 +194,12 @@ class GeneralizedWaveFunction(PyTreeNode, Generic[Orb, S]):
     ):
         return self.wave_function.apply(
             self.wf_params(params, systems, reparams), systems
+        )
+
+    def fix_structure(self, params: WaveFunctionParameters, systems: Systems):
+        return self.__class__(
+            wave_function=self.wave_function,
+            meta_network=self.meta_network,
+            reparam_meta=self.reparam_meta,
+            _reparam=self.reparams(params, systems),
         )
