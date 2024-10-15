@@ -11,6 +11,7 @@ from neural_pfaffian.nn.moon import Moon
 from neural_pfaffian.nn.orbitals import Pfaffian
 from neural_pfaffian.nn.psiformer import PsiFormer
 from neural_pfaffian.nn.wave_function import GeneralizedWaveFunction, WaveFunction
+from neural_pfaffian.preconditioner import Identity, Preconditioner, Spring
 from neural_pfaffian.systems import Systems
 
 
@@ -42,7 +43,18 @@ def systems(request):
 
 @pytest.fixture
 def batched_systems(systems):
-    return systems.replace(electrons=systems.electrons[None, ...])
+    return systems.replace(
+        electrons=jax.random.normal(
+            jax.random.key(0),
+            (2, *systems.electrons.shape),
+            dtype=systems.electrons.dtype,
+        )
+    )
+
+
+@pytest.fixture
+def pmapped_systems(batched_systems):
+    return batched_systems.replace(electrons=batched_systems.electrons[None])
 
 
 @pytest.fixture
@@ -237,3 +249,18 @@ def generalized_wf(wave_function, meta_gnn):
 @pytest.fixture
 def generalized_wf_params(generalized_wf: GeneralizedWaveFunction, one_system: Systems):
     return generalized_wf.init(jax.random.key(42), one_system)
+
+
+@pytest.fixture
+def identity_preconditioner(generalized_wf: GeneralizedWaveFunction):
+    return Identity(generalized_wf)
+
+
+@pytest.fixture
+def sping_preconditioner(generalized_wf: GeneralizedWaveFunction):
+    return Spring(generalized_wf, 1e-3, 0.99, jnp.float64)
+
+
+@pytest.fixture(params=['identity_preconditioner', 'sping_preconditioner'])
+def preconditioner(request) -> Preconditioner:
+    return request.getfixturevalue(request.param)

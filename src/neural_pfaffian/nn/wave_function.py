@@ -76,8 +76,8 @@ class JastrowP(Protocol):
 
 
 class WaveFunctionParameters(PyTreeNode):
-    wave_function: PyTree[Array] = field(pytree_node=False)
-    meta_network: PyTree[Array] = field(pytree_node=False)
+    wave_function: PyTree[Array]
+    meta_network: PyTree[Array]
 
 
 class WaveFunction(ReparamModule, Generic[Orb, S]):
@@ -197,6 +197,15 @@ class GeneralizedWaveFunction(PyTreeNode, Generic[Orb, S]):
         return self.wave_function.apply(
             self.wf_params(params, systems, reparams), systems
         )
+
+    def batched_apply(
+        self,
+        params: WaveFunctionParameters,
+        systems: Systems,
+        reparams: PyTree[Array] | None = None,
+    ):
+        vmapped_apply = jax.vmap(self.apply, in_axes=(None, systems.electron_vmap, None))
+        return vmapped_apply(params, systems, reparams)
 
     def fix_structure(self, params: WaveFunctionParameters, systems: Systems):
         return self.__class__(

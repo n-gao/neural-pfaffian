@@ -3,6 +3,7 @@ import jax.numpy as jnp
 import numpy as np
 from fixtures import *  # noqa: F403
 from numpy.testing import assert_allclose
+from utils import assert_finite, assert_not_float64  # noqa: F403
 
 
 def test_fwd_and_bwd(wf_apply, wf_params, systems):
@@ -16,11 +17,7 @@ def test_fwd_and_bwd(wf_apply, wf_params, systems):
     emb_sum, grad = fwd_sum(learnable_parameters, systems)
     assert isinstance(emb_sum, jax.Array)
     assert jax.numpy.isfinite(emb_sum).all()
-
-    def is_finite(path, x):
-        assert jax.numpy.isfinite(x).all(), f'{path} is not finite'
-
-    jax.tree_util.tree_map_with_path(is_finite, grad)
+    assert_finite(grad)
 
 
 # Run this one in float64
@@ -43,11 +40,7 @@ def test_antisymmetry(wf_signed, wf_params, systems_float64):
 
 
 def test_param_dtype(wf_params):
-    def assert_non_float64(path, x):
-        if isinstance(x, jax.Array):
-            assert x.dtype != jnp.float64, f'{path} is float64'
-
-    jax.tree_util.tree_map_with_path(assert_non_float64, wf_params)
+    assert_not_float64(wf_params)
 
 
 def test_out_dtype(wave_function, wf_params, systems):

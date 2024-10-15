@@ -210,6 +210,7 @@ class Systems(PyTreeNode):
         Generator[T_Array, None, None]
         | Generator[tuple[T_Array, tuple[Spins, Charges]], None, None]
     ):
+        axis = axis % data.ndim
         confs, idx, _, _ = unique(self.spins_and_charges)
 
         chunks = [size_fn(s, c) for s, c in zip(self.spins, self.charges)]
@@ -257,6 +258,14 @@ class Systems(PyTreeNode):
     @property
     def nuclei_molecule_mask(self):
         return np.repeat(np.arange(self.n_mols), self.n_nuc_by_mol)
+
+    @property
+    def molecule_vmap(self):
+        return self.replace(electrons=0, nuclei=0)
+
+    @property
+    def electron_vmap(self):
+        return self.replace(electrons=0, nuclei=None)
 
 
 T = TypeVar('T')

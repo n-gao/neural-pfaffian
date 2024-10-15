@@ -27,14 +27,13 @@ def householder(x: jax.Array) -> tuple[jax.Array, jax.Array, jax.Array]:
     return v, sign, alpha
 
 
-@functools.partial(jax.custom_jvp, nondiff_argnums=(1, 2))
+@functools.partial(jax.custom_jvp)
 @functools.partial(jnp.vectorize, signature='(n,n)->(),()', excluded=frozenset({1}))
-def slog_pfaffian(A: jax.Array, use_det: bool = False) -> tuple[jax.Array, jax.Array]:
+def slog_pfaffian(A: jax.Array) -> tuple[jax.Array, jax.Array]:
     """
     Computes the Pfaffian of a skew-symmetric matrix A using the householder transformation.
     """
     A = jnp.asarray(A)
-    inp_A = A
     out_dtype = A.dtype
     A = A.astype(jnp.float64)
     dtype = A.dtype
@@ -57,24 +56,22 @@ def slog_pfaffian(A: jax.Array, use_det: bool = False) -> tuple[jax.Array, jax.A
 
     sign_pfaffian *= jnp.sign(A[-2, -1])
     log_pfaffian += jnp.log(jnp.abs(A[-2, -1]))
-    if use_det:
-        log_pfaffian = 0.5 * jnp.linalg.slogdet(inp_A.astype(jnp.float64))[1]
     return sign_pfaffian.astype(out_dtype), log_pfaffian.astype(out_dtype)
 
 
 @slog_pfaffian.defjvp
-def slog_pfaffian_jvp(use_det, use_pallas, primals, tangents):
+def slog_pfaffian_jvp(primals, tangents):
     jnp.linalg.slogdet
     (A,) = primals
     (A_dot,) = tangents
-    sign_pfaffian, log_pfaffian = slog_pfaffian(A, use_det=use_det, use_pallas=use_pallas)
+    sign_pfaffian, log_pfaffian = slog_pfaffian(A)
     det_dot = jnp.einsum('...ij,...ji->...', jnp.linalg.inv(A), A_dot)
     sign_dot = jnp.zeros_like(sign_pfaffian)
     pfaffian_dot = det_dot / 2
     return (sign_pfaffian, log_pfaffian), (sign_dot, pfaffian_dot)
 
 
-slog_pfaffian = jit(slog_pfaffian, static_argnames=('use_det', 'use_pallas'))
+slog_pfaffian = jit(slog_pfaffian)
 
 
 @jax.custom_jvp
@@ -136,20 +133,19 @@ def det_skewsymmetric_quadratic(x: jax.Array, A: jax.Array) -> jax.Array:
     return sign * jnp.exp(logdet)
 
 
-@functools.partial(jax.custom_jvp, nondiff_argnums=(2,))
+@jax.custom_jvp
 def slog_pfaffian_skewsymmetric_quadratic(
     x: jax.Array,
     A: jax.Array,
-    use_det: bool = False,
 ) -> tuple[jax.Array, jax.Array]:
-    return slog_pfaffian(skewsymmetric_quadratic(x, A), use_det=use_det)
+    return slog_pfaffian(skewsymmetric_quadratic(x, A))
 
 
 @functools.partial(slog_pfaffian_skewsymmetric_quadratic.defjvp, symbolic_zeros=True)
-def slog_pfaffian_skewsymmetric_quadratic_jvp(use_det, primals, tangents):
+def slog_pfaffian_skewsymmetric_quadratic_jvp(primals, tangents):
     x, A = primals
     x_dot, A_dot = tangents
-    sign, log_pf = slog_pfaffian_skewsymmetric_quadratic(x, A, use_det=use_det)
+    sign, log_pf = slog_pfaffian_skewsymmetric_quadratic(x, A)
     log_pf_dot = jnp.zeros_like(log_pf)
     inv_xAx = inv_skewsymmetric_quadratic(x, A)
     if not isinstance(x_dot, SymbolicZero):
@@ -162,9 +158,7 @@ def slog_pfaffian_skewsymmetric_quadratic_jvp(use_det, primals, tangents):
     return (sign, log_pf), (jnp.zeros_like(sign), log_pf_dot)
 
 
-slog_pfaffian_skewsymmetric_quadratic = jit(
-    slog_pfaffian_skewsymmetric_quadratic, static_argnames=('use_det',)
-)
+slog_pfaffian_skewsymmetric_quadratic = jit(slog_pfaffian_skewsymmetric_quadratic)
 
 
 @jax.custom_jvp
