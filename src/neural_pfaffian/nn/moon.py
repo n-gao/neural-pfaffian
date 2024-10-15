@@ -63,13 +63,6 @@ class MoonEmbeddingElecElec(ReparamModule):
         e_e_i[systems.n_elec_pair_same :] += systems.n_elec
         e_emb = segment_sum(e_e_inp, e_e_i, 2 * systems.n_elec)
         result = einops.rearrange(e_emb, '(two elec) feat -> elec (two feat)', two=2)
-        # Normalize by neighbor count
-        num_neigh = segment_sum(
-            NormEnvelope(-1)(systems, r_ij, None),
-            systems.elec_elec_idx[0],
-            systems.n_elec,
-        )[..., None]
-        result /= num_neigh + 1
         return result
 
 
@@ -88,6 +81,14 @@ class MoonEmbedding(ReparamModule):
         elec_emb = MoonEmbeddingElecElec(
             self.embedding_dim, self.edge_hidden_dim, self.edge_rbf, self.activation
         )(systems)
+        elec_nuc_dists = systems.elec_nuc_dists
+        e_normalizer = segment_sum(
+            NormEnvelope(None)(systems, elec_nuc_dists, systems.elec_nuc_idx[1]),
+            systems.elec_nuc_idx[0],
+            systems.n_elec,
+        )
+        e_normalizer += 1
+        elec_emb /= e_normalizer[..., None]
 
         kernel = self.reparam(
             'kernel',
@@ -101,10 +102,10 @@ class MoonEmbedding(ReparamModule):
             (systems.n_nuc, self.embedding_dim),
             param_type=ParamTypes.NUCLEI,
         )[0][systems.elec_nuc_idx[1]]
-        elec_nuc_dists = systems.elec_nuc_dists
         elec_nuc_emb = log1p_rescale(elec_nuc_dists)
         elec_nuc_emb = jnp.einsum('...d,...dk->...k', elec_nuc_emb, kernel) + bias
         elec_nuc_emb += elec_emb[systems.elec_nuc_idx[0]]
+        elec_nuc_emb = self.activation(elec_nuc_emb)
 
         elec_nuc_edge = EdgeEmbedding(
             self.edge_embedding,
@@ -136,12 +137,6 @@ class MoonEmbedding(ReparamModule):
             aggregate_inp[systems.n_elec + systems.n_nuc :],
         )
         # Normalize by neighbor count
-        e_normalizer = segment_sum(
-            NormEnvelope(None)(systems, elec_nuc_dists, systems.elec_nuc_idx[1]),
-            systems.elec_nuc_idx[0],
-            systems.n_elec,
-        )
-        e_normalizer += 1
         elec_emb /= e_normalizer[..., None]
         n_neigh = segment_sum(
             NormEnvelope(None)(systems, elec_nuc_dists, systems.elec_nuc_idx[1]),

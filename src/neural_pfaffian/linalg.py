@@ -13,35 +13,6 @@ except ImportError:
     folx = None
 
 
-def householder_kernel(x_ref, v_ref, sign_ref, alpha_ref):
-    x = x_ref[:]
-    x0 = x_ref[0]
-    x_norm_squared = (x**2).sum()
-    x_norm = jnp.sqrt(x_norm_squared)
-    x0_sign = x0 / jnp.abs(x0)
-    alpha = -x0_sign * x_norm
-    v_norm = jnp.sqrt(x_norm_squared - 2 * x0 * alpha + alpha**2)
-    v_ref[:] = x / v_norm
-    v_ref[0] = (x0 - alpha) / v_norm
-    sign_ref[...] = x0_sign
-    alpha_ref[...] = alpha
-
-
-@jit
-def householder_pallas(x):
-    from jax.experimental import pallas as pl
-
-    householder_call = pl.pallas_call(  # type: ignore
-        householder_kernel,
-        out_shape=(
-            jax.ShapeDtypeStruct(x.shape, x.dtype),
-            jax.ShapeDtypeStruct((), x.dtype),
-            jax.ShapeDtypeStruct((), x.dtype),
-        ),
-    )
-    return householder_call(x)
-
-
 @jit
 def householder(x: jax.Array) -> tuple[jax.Array, jax.Array, jax.Array]:
     x0 = x[0]
@@ -57,10 +28,8 @@ def householder(x: jax.Array) -> tuple[jax.Array, jax.Array, jax.Array]:
 
 
 @functools.partial(jax.custom_jvp, nondiff_argnums=(1, 2))
-@functools.partial(jnp.vectorize, signature='(n,n)->(),()', excluded=frozenset({1, 2}))
-def slog_pfaffian(
-    A: jax.Array, use_det: bool = False, use_pallas: bool = False
-) -> tuple[jax.Array, jax.Array]:
+@functools.partial(jnp.vectorize, signature='(n,n)->(),()', excluded=frozenset({1}))
+def slog_pfaffian(A: jax.Array, use_det: bool = False) -> tuple[jax.Array, jax.Array]:
     """
     Computes the Pfaffian of a skew-symmetric matrix A using the householder transformation.
     """
@@ -76,17 +45,8 @@ def slog_pfaffian(
     sign_pfaffian = jnp.ones((), dtype=dtype)
     log_pfaffian = jnp.zeros((), dtype=dtype)
 
-    if use_pallas:
-        try:
-            householder_pallas(A[1:, 0])
-            householder_fn = householder_pallas
-        except Exception:
-            householder_fn = householder
-    else:
-        householder_fn = householder
-
     for i in range(n - 2):
-        v, sign, alpha = householder_fn(A[1:, 0])
+        v, sign, alpha = householder(A[1:, 0])
         vw = 2 * jnp.einsum('a,bc,c->ab', v, A[1:, 1:], v)
         delta = vw - vw.mT
         A = A[1:, 1:] + delta
