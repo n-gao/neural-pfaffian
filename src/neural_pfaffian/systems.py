@@ -12,10 +12,12 @@ import jax.numpy as jnp
 import jax.tree_util as jtu
 import numpy as np
 import numpy.typing as npt
-from flax.struct import PyTreeNode, field
-from jaxtyping import Array, ArrayLike, Float, Integer
+from flax.struct import field
+from jaxtyping import Array, ArrayLike, Float, Integer, PyTree
 
 from neural_pfaffian.utils import adj_idx, merge_slices, unique
+from neural_pfaffian.utils.jax_utils import SplittablePyTreeNode
+from neural_pfaffian.utils.tree_utils import tree_take
 
 Electrons = Float[Array, '... n_elec 3']
 Nuclei = Float[Array, '... n_nuc 3']
@@ -61,11 +63,18 @@ T = TypeVar('T')
 Ts = TypeVarTuple('Ts')
 
 
-class Systems(PyTreeNode):
+class Systems(SplittablePyTreeNode):
     spins: tuple[Spins, ...] = field(pytree_node=False)
     charges: tuple[Charges, ...] = field(pytree_node=False)
     electrons: Electrons
     nuclei: Nuclei
+    mol_data: dict[str, PyTree[Float[Array, 'n_mols ...']]]
+
+    def set_mol_data(self, key: str, data: PyTree[Float[Array, 'n_mols ...']]):
+        return self.replace(mol_data=self.mol_data | {key: data})
+
+    def get_mol_data(self, key: str) -> PyTree[Float[Array, 'n_mols ...']]:
+        return self.mol_data[key]
 
     @property
     def n_elec_by_mol(self):
@@ -155,14 +164,14 @@ class Systems(PyTreeNode):
     def sub_configs(self):
         result: list[Systems] = []
         e_idx = n_idx = 0
-        for s, c in zip(self.spins, self.charges):
+        for i, (s, c) in enumerate(zip(self.spins, self.charges)):
             n_elec = sum(s)
             n_nuc = len(c)
             e = self.electrons[..., e_idx : e_idx + n_elec, :]
             n = self.nuclei[..., n_idx : n_idx + n_nuc, :]
             e_idx += n_elec
             n_idx += n_nuc
-            result.append(Systems((s,), (c,), e, n))
+            result.append(Systems((s,), (c,), e, n, tree_take(self.mol_data, i, 0)))
         return tuple(result)
 
     @property
@@ -261,11 +270,15 @@ class Systems(PyTreeNode):
 
     @property
     def molecule_vmap(self):
-        return self.replace(electrons=0, nuclei=0)
+        return self.replace(electrons=0, nuclei=0, mol_data=0)
 
     @property
     def electron_vmap(self):
-        return self.replace(electrons=0, nuclei=None)
+        return self.replace(electrons=0, nuclei=None, mol_data=None)
+
+    @staticmethod
+    def pmap_dim():
+        return Systems(None, None, 0, None, 0)  # type: ignore
 
 
 T = TypeVar('T')

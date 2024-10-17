@@ -53,6 +53,7 @@ def make_kinetic_energy(
                 charges=(charges,),
                 electrons=electrons,
                 nuclei=nuclei,
+                mol_data={},
             )
 
             @vmap_fn

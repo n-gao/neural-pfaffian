@@ -5,9 +5,12 @@ import jax
 import jax.numpy as jnp
 import jax.tree_util as jtu
 from flax.struct import PyTreeNode, field
-from jaxtyping import Array, ArrayLike, DTypeLike, Float, PyTree
+from jaxtyping import Array, ArrayLike, DTypeLike, Float
 
-from neural_pfaffian.nn.wave_function import GeneralizedWaveFunction
+from neural_pfaffian.nn.wave_function import (
+    GeneralizedWaveFunction,
+    WaveFunctionParameters,
+)
 from neural_pfaffian.systems import Systems
 from neural_pfaffian.utils.jax_utils import (
     pall_to_all,
@@ -22,26 +25,26 @@ PS = TypeVar('PS')
 
 
 class Preconditioner(Protocol[PS]):
-    def init(self, params: PyTree[Array]) -> PS: ...
+    def init(self, params: WaveFunctionParameters) -> PS: ...
 
     def apply(
         self,
-        params: PyTree[Array],
+        params: WaveFunctionParameters,
         systems: Systems,
         dE_dlogpsi: Float[Array, 'batch_size n_mols'],
         state: PS,
-    ) -> tuple[PyTree[Array], PS, dict[str, Float[Array, '']]]: ...
+    ) -> tuple[WaveFunctionParameters, PS, dict[str, Float[Array, '']]]: ...
 
 
 class Identity(PyTreeNode, Preconditioner[None]):
     wave_function: GeneralizedWaveFunction = field(pytree_node=False)
 
-    def init(self, params: PyTree[Array]) -> None:
+    def init(self, params: WaveFunctionParameters) -> None:
         return None
 
     def apply(
         self,
-        params: PyTree[Array],
+        params: WaveFunctionParameters,
         systems: Systems,
         dE_dlogpsi: Float[Array, 'batch_size n_mols'],
         state: None,
@@ -60,7 +63,7 @@ class Identity(PyTreeNode, Preconditioner[None]):
 
 
 class SpringState(PyTreeNode):
-    last_grad: PyTree[Array]
+    last_grad: WaveFunctionParameters
     damping: Float[Array, '']
 
 
@@ -70,7 +73,7 @@ class Spring(PyTreeNode, Preconditioner[SpringState]):
     decay_factor: Float[ArrayLike, '']
     dtype: DTypeLike | None = field(pytree_node=False)
 
-    def init(self, params: PyTree[Array]) -> SpringState:
+    def init(self, params: WaveFunctionParameters) -> SpringState:
         return SpringState(
             last_grad=jtu.tree_map(lambda x: jnp.zeros_like(x, dtype=self.dtype), params),
             damping=jnp.asarray(self.damping, dtype=jnp.float32),
@@ -78,7 +81,7 @@ class Spring(PyTreeNode, Preconditioner[SpringState]):
 
     def apply(
         self,
-        params: PyTree[Array],
+        params: WaveFunctionParameters,
         systems: Systems,
         dE_dlogpsi: Float[Array, 'batch_size n_mols'],
         state: SpringState,
@@ -106,7 +109,7 @@ class Spring(PyTreeNode, Preconditioner[SpringState]):
 
         jacs: list[list[jax.Array]] = []
         for elec, nuc, (spins, charges) in systems.iter_grouped_molecules():
-            sub_systems = Systems((spins,), (charges,), elec, nuc)
+            sub_systems = Systems((spins,), (charges,), elec, nuc, {})
 
             @functools.partial(jax.vmap, in_axes=(None, sub_systems.electron_vmap))
             @functools.partial(jax.vmap, in_axes=(None, sub_systems.molecule_vmap))
@@ -132,7 +135,7 @@ class Spring(PyTreeNode, Preconditioner[SpringState]):
             # for the remainder we copy it to all devices
             remainder = pgather(remainder, axis=0, tiled=True)
             remainder -= remainder.mean(axis=0)
-            remainder = remainder.reshape(N * n_dev, -1)
+            remainder = remainder.reshape(N, -1)
             # Since the remainder is summed n_dev times we need to divide by n_dev
             return jac @ jac.T + remainder @ remainder.T / n_dev
 

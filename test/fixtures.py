@@ -1,8 +1,10 @@
 import flax.linen as nn
 import jax
 import jax.numpy as jnp
+import optax
 import pytest
 
+from neural_pfaffian.mcmc import MetroplisHastings
 from neural_pfaffian.nn.envelopes import EfficientEnvelope, FullEnvelope
 from neural_pfaffian.nn.ferminet import FermiNet
 from neural_pfaffian.nn.meta_network import MetaGNN
@@ -13,6 +15,7 @@ from neural_pfaffian.nn.psiformer import PsiFormer
 from neural_pfaffian.nn.wave_function import GeneralizedWaveFunction, WaveFunction
 from neural_pfaffian.preconditioner import Identity, Preconditioner, Spring
 from neural_pfaffian.systems import Systems
+from neural_pfaffian.vmc import VMC, ClipStatistic
 
 
 # Systems
@@ -23,6 +26,7 @@ def one_system():
         charges=((4,),),
         electrons=jax.random.normal(jax.random.key(0), (4, 3), dtype=jnp.float32),
         nuclei=jax.random.normal(jax.random.key(1), (1, 3), dtype=jnp.float32),
+        mol_data={},
     )
 
 
@@ -33,6 +37,7 @@ def two_systems():
         charges=((4,), (2, 1)),
         electrons=jax.random.normal(jax.random.key(0), (10, 3), dtype=jnp.float32),
         nuclei=jax.random.normal(jax.random.key(1), (3, 3), dtype=jnp.float32),
+        mol_data={},
     )
 
 
@@ -54,7 +59,9 @@ def batched_systems(systems):
 
 @pytest.fixture
 def pmapped_systems(batched_systems):
-    return batched_systems.replace(electrons=batched_systems.electrons[None])
+    return batched_systems.replace(
+        electrons=batched_systems.electrons[None], nuclei=batched_systems.nuclei[None]
+    )
 
 
 @pytest.fixture
@@ -251,16 +258,65 @@ def generalized_wf_params(generalized_wf: GeneralizedWaveFunction, one_system: S
     return generalized_wf.init(jax.random.key(42), one_system)
 
 
+# Example WF
 @pytest.fixture
-def identity_preconditioner(generalized_wf: GeneralizedWaveFunction):
-    return Identity(generalized_wf)
+def neural_pfaffian(moon, jastrow_models, efficient_envelope, meta_gnn):
+    pfaffian = Pfaffian(2, 4, efficient_envelope, 10, 0.1, 1.0, 1.0)
+    return GeneralizedWaveFunction.create(
+        WaveFunction(moon, pfaffian, jastrow_models), meta_gnn
+    )
 
 
 @pytest.fixture
-def sping_preconditioner(generalized_wf: GeneralizedWaveFunction):
-    return Spring(generalized_wf, 1e-3, 0.99, jnp.float64)
+def neural_pfaffian_params(neural_pfaffian: GeneralizedWaveFunction, one_system: Systems):
+    return neural_pfaffian.init(jax.random.key(42), one_system)
+
+
+@pytest.fixture
+def identity_preconditioner(neural_pfaffian: GeneralizedWaveFunction):
+    return Identity(neural_pfaffian)
+
+
+@pytest.fixture
+def sping_preconditioner(neural_pfaffian: GeneralizedWaveFunction):
+    return Spring(neural_pfaffian, 1e-3, 0.99, jnp.float64)
 
 
 @pytest.fixture(params=['identity_preconditioner', 'sping_preconditioner'])
 def preconditioner(request) -> Preconditioner:
     return request.getfixturevalue(request.param)
+
+
+@pytest.fixture
+def mcmc(neural_pfaffian: GeneralizedWaveFunction):
+    return MetroplisHastings(neural_pfaffian, 5, jnp.array(1.0), 2, 0.5, 0.025)
+
+
+@pytest.fixture
+def optimizer():
+    return optax.adam(1e-3)
+
+
+@pytest.fixture
+def vmc(neural_pfaffian, preconditioner, mcmc, optimizer):
+    return VMC(
+        wave_function=neural_pfaffian,
+        preconditioner=preconditioner,
+        optimizer=optimizer,
+        sampler=mcmc,
+        clip_local_energy=5.0,
+        clip_statistic=ClipStatistic.MEDIAN,
+    )
+
+
+@pytest.fixture
+def vmc_state(vmc: VMC, one_system: Systems):
+    return vmc.init(jax.random.key(0), one_system)
+
+
+@pytest.fixture
+def vmc_systems(vmc: VMC, pmapped_systems: Systems):
+    key = jax.random.key(7)
+    return vmc.init_systems_data(
+        jax.random.split(key, jax.local_device_count()), pmapped_systems
+    )

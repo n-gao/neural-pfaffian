@@ -3,6 +3,7 @@ from typing import Callable, NamedTuple, Protocol, Sequence
 import jax
 import jax.numpy as jnp
 import numpy as np
+from flax.struct import PyTreeNode, field
 from jaxtyping import Array, Float, Integer
 
 from neural_pfaffian.nn.wave_function import (
@@ -11,21 +12,23 @@ from neural_pfaffian.nn.wave_function import (
     WaveFunctionParameters,
 )
 from neural_pfaffian.systems import Electrons, Systems
-from neural_pfaffian.utils.jax_utils import jit, pmean_if_pmap
+from neural_pfaffian.utils.jax_utils import pmean_if_pmap
 
 PMove = Float[Array, 'n_mols']
 Width = Float[Array, 'n_mols']
 type LogDensity = LogAmplitude
 
+_WIDTH_KEY = 'mcmc_width'
+
 
 class WidthSchedulerState(NamedTuple):
     width: Width
-    pmoves: Float[PMove, ' steps']
+    pmoves: Float[PMove, 'n_mols steps']
     i: Integer[Array, ' n_mols']
 
 
 class InitWidthState(Protocol):
-    def __call__(self, init_width: Width) -> WidthSchedulerState: ...
+    def __call__(self, n_mols: int) -> WidthSchedulerState: ...
 
 
 class UpdateWidthState(Protocol):
@@ -40,19 +43,20 @@ class WidthScheduler(NamedTuple):
 
 
 def make_width_scheduler(
+    init_width: Width,
     window_size: int = 20,
     target_pmove: float = 0.525,
     error: float = 0.025,
 ):
-    @jax.jit
-    def init(init_width: Width) -> WidthSchedulerState:
+    def init(n_mols: int) -> WidthSchedulerState:
         return WidthSchedulerState(
-            width=jnp.array(init_width, dtype=jnp.float32),
-            pmoves=jnp.zeros((window_size, *init_width.shape), dtype=jnp.float32),
-            i=jnp.zeros((), dtype=jnp.int32),
+            width=jnp.full((n_mols,), init_width, jnp.float32),
+            pmoves=jnp.zeros((n_mols, window_size, *init_width.shape), dtype=jnp.float32),
+            i=jnp.zeros((n_mols,), dtype=jnp.int32),
         )
 
     @jax.jit
+    @jax.vmap
     def update(state: WidthSchedulerState, pmove: PMove) -> WidthSchedulerState:
         pmoves = state.pmoves.at[jnp.mod(state.i, window_size)].set(pmove)
         pm_mean = state.pmoves.mean()
@@ -95,10 +99,10 @@ def make_mh_update(
         ratio = log_prob_new - log_prob
 
         key, subkey = jax.random.split(key)
-        alpha = jnp.log(jax.random.uniform(key, dtype=electrons.dtype))
+        alpha = jnp.log(jax.random.uniform(key, log_prob_new.shape))
         cond = ratio > alpha
         new_electrons = jnp.where(
-            jnp.repeat(cond, mol_to_elecs)[:, None], new_electrons, electrons
+            jnp.repeat(cond, mol_to_elecs, axis=-1)[..., None], new_electrons, electrons
         )
         log_prob = jnp.where(cond, log_prob_new, log_prob)
         num_accepts += cond
@@ -107,17 +111,22 @@ def make_mh_update(
     return mh_update
 
 
-def make_mcmc(wf: GeneralizedWaveFunction, steps: int, width_scheduler: WidthScheduler):
-    @jit
-    def mcmc(
-        key: jax.Array,
-        params: WaveFunctionParameters,
-        systems: Systems,
-        width_state: WidthSchedulerState,
-    ):
+class MetroplisHastings(PyTreeNode):
+    wave_function: GeneralizedWaveFunction
+    steps: int = field(pytree_node=False)
+    init_width: Width
+    window_size: int = field(pytree_node=False)
+    target_pmove: float
+    error: float
+
+    def init(self, key: Array, systems: Systems):
+        return systems.set_mol_data(_WIDTH_KEY, self.width_scheduler.init(systems.n_mols))
+
+    def __call__(self, key: Array, params: WaveFunctionParameters, systems: Systems):
         # Fix the per molecule parameters and do not recompute them
-        wf_fixed = wf.fix_structure(params, systems)
+        wf_fixed = self.wave_function.fix_structure(params, systems)
         # Get current width
+        width_state = systems.get_mol_data(_WIDTH_KEY)
         width = width_state.width
         batch_size = systems.electrons.shape[0]
 
@@ -132,13 +141,16 @@ def make_mcmc(wf: GeneralizedWaveFunction, steps: int, width_scheduler: WidthSch
         key, electrons, _, num_accepts = jax.lax.scan(
             lambda x, _: (mh_update(*x), None),
             (key, systems.electrons, log_probs, num_accepts),
-            jnp.arange(steps),
+            jnp.arange(self.steps),
         )[0]
-        systems = systems.replace(electrons=electrons)
 
-        pmove = jnp.sum(num_accepts, axis=0) / (steps * batch_size)
+        pmove = jnp.sum(num_accepts, axis=0) / (self.steps * batch_size)
         pmove = pmean_if_pmap(pmove)
-        width_state = jax.vmap(width_scheduler.update)(width_state, pmove)
-        return systems, width_state
+        width_state = self.width_scheduler.update(width_state, pmove)
+        return systems.replace(electrons=electrons).set_mol_data(_WIDTH_KEY, width_state)
 
-    return mcmc
+    @property
+    def width_scheduler(self):
+        return make_width_scheduler(
+            self.init_width, self.window_size, self.target_pmove, self.error
+        )

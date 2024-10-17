@@ -80,7 +80,7 @@ class WaveFunctionParameters(PyTreeNode):
     meta_network: PyTree[Array]
 
 
-class WaveFunction(ReparamModule, Generic[Orb, S]):
+class WaveFunction(Generic[Orb, S], ReparamModule):
     embedding_module: EmbeddingP
     orbital_module: OrbitalsP[Orb, S]
     jastrow_modules: Sequence[JastrowP]
@@ -114,7 +114,7 @@ class WaveFunction(ReparamModule, Generic[Orb, S]):
         return self.apply(params, systems, method=self._signed)  # type: ignore
 
 
-class GeneralizedWaveFunction(PyTreeNode, Generic[Orb, S]):
+class GeneralizedWaveFunction(Generic[Orb, S], PyTreeNode):
     wave_function: WaveFunction[Orb, S] = field(pytree_node=False)
     meta_network: MetaNetworkP | None = field(pytree_node=False)
     reparam_meta: PyTree[ParamMeta] = field(pytree_node=False)
@@ -133,6 +133,7 @@ class GeneralizedWaveFunction(PyTreeNode, Generic[Orb, S]):
             charges=((2,),),
             electrons=jnp.zeros((2, 3)),
             nuclei=jnp.zeros((1, 3)),
+            mol_data={},
         )
         key = jax.random.key(0)
         params = wave_function.init(key, system)
