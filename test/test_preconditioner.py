@@ -1,27 +1,32 @@
+import jax
 import jax.numpy as jnp
-import jax.tree_util as jtu
 from fixtures import *  # noqa: F403
 
-from neural_pfaffian.utils.jax_utils import pmap
+from neural_pfaffian.utils.jax_utils import BATCH_SHARD, REPLICATE_SHARD, shmap
 from test.utils import assert_finite, assert_shape_and_dtype
 
 
-def test_preconditioner(preconditioner, neural_pfaffian_params, pmapped_systems):
-    neural_pfaffian_params = jtu.tree_map(lambda x: x[None], neural_pfaffian_params)
-    state = pmap(preconditioner.init)(neural_pfaffian_params)
-    apply = pmap(
+def test_preconditioner(preconditioner, neural_pfaffian_params, batched_systems):
+    state = preconditioner.init(neural_pfaffian_params)
+    apply = shmap(
         preconditioner.apply,
-        in_axes=(0, pmapped_systems.electron_vmap, 0, 0),
+        in_specs=(
+            REPLICATE_SHARD,
+            batched_systems.sharding,
+            BATCH_SHARD,
+            REPLICATE_SHARD,
+        ),
+        out_specs=REPLICATE_SHARD,
+        check_rep=False,
+    )
+    apply = jax.jit(apply)
+    dE_dlogpsi = jnp.zeros(
+        (*batched_systems.electrons.shape[:-2], batched_systems.n_mols),
+        dtype=batched_systems.electrons.dtype,
     )
 
     grad, new_state, aux_data = apply(
-        neural_pfaffian_params,
-        pmapped_systems,
-        jnp.zeros(
-            (*pmapped_systems.electrons.shape[:-2], pmapped_systems.n_mols),
-            dtype=pmapped_systems.electrons.dtype,
-        ),
-        state,
+        neural_pfaffian_params, batched_systems, dE_dlogpsi, state
     )
     assert_shape_and_dtype(grad, neural_pfaffian_params)
     assert_shape_and_dtype(new_state, state)

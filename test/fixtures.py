@@ -51,16 +51,9 @@ def batched_systems(systems):
     return systems.replace(
         electrons=jax.random.normal(
             jax.random.key(0),
-            (2, *systems.electrons.shape),
+            (2 * jax.device_count(), *systems.electrons.shape),
             dtype=systems.electrons.dtype,
         )
-    )
-
-
-@pytest.fixture
-def pmapped_systems(batched_systems):
-    return batched_systems.replace(
-        electrons=batched_systems.electrons[None], nuclei=batched_systems.nuclei[None]
     )
 
 
@@ -315,8 +308,5 @@ def vmc_state(vmc: VMC, one_system: Systems):
 
 
 @pytest.fixture
-def vmc_systems(vmc: VMC, pmapped_systems: Systems):
-    key = jax.random.key(7)
-    return vmc.init_systems_data(
-        jax.random.split(key, jax.local_device_count()), pmapped_systems
-    )
+def vmc_systems(vmc: VMC, batched_systems: Systems):
+    return vmc.init_systems_data(jax.random.key(7), batched_systems)

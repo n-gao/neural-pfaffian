@@ -16,7 +16,13 @@ from neural_pfaffian.nn.wave_function import (
 )
 from neural_pfaffian.preconditioner import Preconditioner
 from neural_pfaffian.systems import Systems
-from neural_pfaffian.utils.jax_utils import pmap, pmean, replicate
+from neural_pfaffian.utils.jax_utils import (
+    REPLICATE_SHARD,
+    distribute_keys,
+    jit,
+    pmean,
+    shmap,
+)
 
 LocalEnergy = Float[Array, 'batch_size n_mols']
 
@@ -66,6 +72,10 @@ class VMCState(Generic[PS], PyTreeNode):
     preconditioner: PS
     step: Integer[Array, '']
 
+    @property
+    def sharding(self):
+        return REPLICATE_SHARD
+
 
 class VMC(Generic[PS, O, OS], PyTreeNode):
     wave_function: GeneralizedWaveFunction[O, OS] = field(pytree_node=False)
@@ -77,19 +87,25 @@ class VMC(Generic[PS, O, OS], PyTreeNode):
 
     def init(self, key: Array, systems: Systems):
         params = self.wave_function.init(key, systems)
-        params = replicate(params)
         return VMCState(
             params=params,
-            optimizer=pmap(self.optimizer.init)(params),  # type: ignore
-            preconditioner=pmap(self.preconditioner.init)(params),
-            step=replicate(jnp.zeros((), dtype=jnp.int32)),
+            optimizer=self.optimizer.init(params),  # type: ignore
+            preconditioner=self.preconditioner.init(params),
+            step=jnp.zeros((), dtype=jnp.int32),
         )
 
-    @pmap(in_axes=(None, 0, 0))
     def init_systems_data(self, key: Array, systems: Systems):
-        key, subkey = jax.random.split(key)
-        systems = self.sampler.init(subkey, systems)
-        return systems
+        @shmap(
+            in_specs=(REPLICATE_SHARD, systems.sharding),
+            out_specs=systems.sharding,
+        )
+        def init(key: Array, systems: Systems):
+            key = distribute_keys(key)
+            key, subkey = jax.random.split(key)
+            systems = self.sampler.init(subkey, systems)
+            return systems
+
+        return init(key, systems)
 
     def mcmc_step(self, key: Array, state: VMCState[PS], systems: Systems):
         return self.sampler(key, state.params, systems)
@@ -108,35 +124,43 @@ class VMC(Generic[PS, O, OS], PyTreeNode):
         )
         return e_l
 
-    @pmap(in_axes=(None, 0, 0, 0))
+    @jit
     def step(self, key: Array, state: VMCState[PS], systems: Systems):
-        key, subkey = jax.random.split(key)
-        print(jax.tree_util.tree_map(jnp.shape, systems))
-        systems = self.mcmc_step(subkey, state, systems)
-
-        e_l = self.local_energy(state, systems)
-        dE_dlogpsi = local_energy_diff(
-            e_l, self.clip_local_energy, ClipStatistic(self.clip_statistic)
+        @shmap(
+            in_specs=(REPLICATE_SHARD, state.sharding, systems.sharding),
+            out_specs=(state.sharding, systems.sharding, REPLICATE_SHARD),
+            check_rep=False,
         )
+        def _step(key: Array, state: VMCState[PS], systems: Systems):
+            key = distribute_keys(key)
+            key, subkey = jax.random.split(key)
+            systems = self.mcmc_step(subkey, state, systems)
 
-        update, preconditioner_state, aux_data = self.preconditioner.apply(
-            state.params, systems, dE_dlogpsi, state.preconditioner
-        )
+            e_l = self.local_energy(state, systems)
+            dE_dlogpsi = local_energy_diff(
+                e_l, self.clip_local_energy, ClipStatistic(self.clip_statistic)
+            )
 
-        E = pmean(e_l.mean())
-        E_std = (pmean(e_l.var(0)) ** 0.5).mean()
-        aux_data = aux_data | dict(E=E, E_std=E_std)
+            update, preconditioner_state, aux_data = self.preconditioner.apply(
+                state.params, systems, dE_dlogpsi, state.preconditioner
+            )
 
-        updates, opt_state = self.optimizer.update(update, state.optimizer)  # type: ignore
-        params = optax.apply_updates(state.params, updates)  # type: ignore
+            E = pmean(e_l.mean())
+            E_std = (pmean(e_l.var(0)) ** 0.5).mean()
+            aux_data = aux_data | dict(E=E, E_std=E_std)
 
-        return (
-            state.replace(
-                params=params,
-                optimizer=opt_state,
-                preconditioner=preconditioner_state,
-                step=state.step + 1,
-            ),
-            systems,
-            aux_data,
-        )
+            updates, opt_state = self.optimizer.update(update, state.optimizer)  # type: ignore
+            params = optax.apply_updates(state.params, updates)  # type: ignore
+
+            return (
+                state.replace(
+                    params=params,
+                    optimizer=opt_state,
+                    preconditioner=preconditioner_state,
+                    step=state.step + 1,
+                ),
+                systems,
+                aux_data,
+            )
+
+        return _step(key, state, systems)

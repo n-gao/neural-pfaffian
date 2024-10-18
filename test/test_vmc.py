@@ -6,7 +6,7 @@ from neural_pfaffian.systems import Systems
 from neural_pfaffian.vmc import VMC, VMCState
 
 
-def test_dtypes(vmc: VMC, vmc_state: VMCState, vmc_systems: Systems):
+def test_dtypes(vmc_state: VMCState, vmc_systems: Systems):
     assert_not_float64(vmc_state.params)
     assert_not_float64(vmc_systems)
     assert_finite(vmc_state)
@@ -14,10 +14,7 @@ def test_dtypes(vmc: VMC, vmc_state: VMCState, vmc_systems: Systems):
 
 
 def test_step(vmc: VMC, vmc_state: VMCState, vmc_systems: Systems):
-    key = jax.random.key(8)
-    new_state, new_systems, aux_data = vmc.step(
-        jax.random.split(key, jax.local_device_count()), vmc_state, vmc_systems
-    )
+    new_state, new_systems, aux_data = vmc.step(jax.random.key(8), vmc_state, vmc_systems)
 
     assert_finite(new_state)
     assert_finite(new_systems)

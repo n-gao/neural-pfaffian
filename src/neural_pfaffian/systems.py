@@ -12,11 +12,11 @@ import jax.numpy as jnp
 import jax.tree_util as jtu
 import numpy as np
 import numpy.typing as npt
-from flax.struct import field
+from flax.struct import PyTreeNode, field
 from jaxtyping import Array, ArrayLike, Float, Integer, PyTree
 
 from neural_pfaffian.utils import adj_idx, merge_slices, unique
-from neural_pfaffian.utils.jax_utils import SplittablePyTreeNode
+from neural_pfaffian.utils.jax_utils import BATCH_SHARD, REPLICATE_SHARD
 from neural_pfaffian.utils.tree_utils import tree_take
 
 Electrons = Float[Array, '... n_elec 3']
@@ -63,7 +63,7 @@ T = TypeVar('T')
 Ts = TypeVarTuple('Ts')
 
 
-class Systems(SplittablePyTreeNode):
+class Systems(PyTreeNode):
     spins: tuple[Spins, ...] = field(pytree_node=False)
     charges: tuple[Charges, ...] = field(pytree_node=False)
     electrons: Electrons
@@ -275,6 +275,14 @@ class Systems(SplittablePyTreeNode):
     @property
     def electron_vmap(self):
         return self.replace(electrons=0, nuclei=None, mol_data=None)
+
+    @property
+    def sharding(self):
+        return self.replace(
+            electrons=BATCH_SHARD,  # electons are batched per molecule
+            nuclei=REPLICATE_SHARD,  # nuclei are replicated
+            mol_data=REPLICATE_SHARD,  # molecule data is replicated
+        )
 
     @staticmethod
     def pmap_dim():
