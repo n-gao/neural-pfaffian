@@ -18,6 +18,7 @@ from neural_pfaffian.linalg import (
 )
 from neural_pfaffian.nn.envelopes import Envelope
 from neural_pfaffian.nn.module import ParamTypes, ReparamModule
+from neural_pfaffian.nn.utils import pad_block
 from neural_pfaffian.nn.wave_function import OrbitalsP
 from neural_pfaffian.systems import Systems, chunk_electron
 from neural_pfaffian.utils import EMAState, ema_make, ema_update, ema_value
@@ -131,7 +132,7 @@ class Pfaffian(
             systems.group(A, A_meta.param_type.value.chunk_fn),
             systems.unique_spins_and_charges,
         ):
-            n_up, n_nuc = spins[0], len(charges)
+            n_elec, n_up, n_nuc = sum(spins), spins[0], len(charges)
 
             @jax.vmap  # vmap over different molecules
             def _orbitals(diag: Array, offdiag: Array, A: Array):
@@ -155,6 +156,9 @@ class Pfaffian(
                     axis=1,
                 )
                 orbitals = jnp.moveaxis(orbitals, -1, 0)  # (n_det, n_elec, 2*n_orbs)
+                if n_elec % 2 == 1:
+                    orbitals = pad_block(orbitals, 0, 0, 1)
+                    A = pad_block(A, 1, -1, 0)
                 return PfaffianOrbitals(orbitals, A)
 
             result.append(_orbitals(diag, offdiag, A))

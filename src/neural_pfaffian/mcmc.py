@@ -4,7 +4,7 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 from flax.struct import PyTreeNode, field
-from jaxtyping import Array, Float, Integer
+from jaxtyping import Array, ArrayLike, Float, Integer
 
 from neural_pfaffian.nn.wave_function import (
     GeneralizedWaveFunction,
@@ -15,7 +15,7 @@ from neural_pfaffian.systems import Electrons, Systems
 from neural_pfaffian.utils.jax_utils import pmean_if_pmap
 
 PMove = Float[Array, 'n_mols']
-Width = Float[Array, 'n_mols']
+Width = Float[ArrayLike, 'n_mols']
 type LogDensity = LogAmplitude
 
 _WIDTH_KEY = 'mcmc_width'
@@ -48,6 +48,8 @@ def make_width_scheduler(
     target_pmove: float = 0.525,
     error: float = 0.025,
 ):
+    init_width = jnp.asarray(init_width, dtype=jnp.float32)
+
     def init(n_mols: int) -> WidthSchedulerState:
         return WidthSchedulerState(
             width=jnp.full((n_mols,), init_width, jnp.float32),
@@ -120,7 +122,11 @@ class MetroplisHastings(PyTreeNode):
     error: float
 
     def init(self, key: Array, systems: Systems):
-        return systems.set_mol_data(_WIDTH_KEY, self.width_scheduler.init(systems.n_mols))
+        if _WIDTH_KEY not in systems.mol_data:
+            return systems.set_mol_data(
+                _WIDTH_KEY, self.width_scheduler.init(systems.n_mols)
+            )
+        return systems
 
     def __call__(self, key: Array, params: WaveFunctionParameters, systems: Systems):
         # Fix the per molecule parameters and do not recompute them

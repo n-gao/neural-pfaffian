@@ -145,3 +145,16 @@ def ema_value(data: EMAState[T], backup: T = None) -> T:
         backup = tree
     is_nan = weight == 0
     return jtu.tree_map(lambda x, y: jnp.where(is_nan, y, x / weight), tree, backup)
+
+
+def batch(data: Sequence[T], n: int) -> Sequence[Sequence[T]]:
+    """
+    Batches data into chunks of size n.
+
+    Args:
+    - data: data to batch
+    - n: size of the chunks
+    Return:
+    - batched data
+    """
+    return [data[i : i + n] for i in range(0, len(data), n)]

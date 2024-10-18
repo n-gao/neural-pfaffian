@@ -3,7 +3,9 @@ from typing import Callable, TypeVar
 import flax.linen as nn
 import jax
 import jax.numpy as jnp
-from jaxtyping import Array, Float
+from jaxtyping import Array, ArrayLike, Float
+
+from neural_pfaffian.utils.jax_utils import vectorize
 
 
 def residual(x: Array, y: Array):
@@ -34,3 +36,15 @@ class GatedLinearUnit(nn.Module):
             self.activation(nn.Dense(hidden_dim, use_bias=False)(x))
             * nn.Dense(hidden_dim, use_bias=False)(x)
         )
+
+
+@vectorize(signature='(a,b)->(c,d)', excluded={1, 2, 3})
+def pad_block(
+    x: Array, top_right: ArrayLike, bottom_left: ArrayLike, bottom_right: ArrayLike
+):
+    n, m = x.shape
+    dtype = x.dtype
+    tr = jnp.full((n, 1), top_right, dtype=dtype)
+    bl = jnp.full((1, m), bottom_left, dtype=dtype)
+    br = jnp.full((1, 1), bottom_right, dtype=dtype)
+    return jnp.block([[x, tr], [bl, br]])

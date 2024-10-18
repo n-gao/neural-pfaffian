@@ -1,3 +1,4 @@
+import functools
 from typing import (
     Generator,
     Literal,
@@ -63,6 +64,7 @@ T = TypeVar('T')
 Ts = TypeVarTuple('Ts')
 
 
+@functools.total_ordering
 class Systems(PyTreeNode):
     spins: tuple[Spins, ...] = field(pytree_node=False)
     charges: tuple[Charges, ...] = field(pytree_node=False)
@@ -284,9 +286,34 @@ class Systems(PyTreeNode):
             mol_data=REPLICATE_SHARD,  # molecule data is replicated
         )
 
+    def __eq__(self, other):
+        if not isinstance(other, Systems):
+            return False
+        # TODO: Sort first
+        return self.spins == other.spins and self.charges == other.charges
+
+    def __lt__(self, other):
+        if not isinstance(other, Systems):
+            return NotImplemented
+        # TODO: Sort first
+        if self.spins == other.spins:
+            return self.charges < other.charges
+        else:
+            return self.spins < other.spins
+
     @staticmethod
-    def pmap_dim():
-        return Systems(None, None, 0, None, 0)  # type: ignore
+    def merge(systems: Sequence['Systems']) -> 'Systems':
+        # each system is now a single molecule
+        flat_systems = [s for sys in systems for s in sys.sub_configs]
+        flat_systems = sorted(flat_systems)
+        spins = [s.spins[0] for s in flat_systems]
+        charges = [s.charges[0] for s in flat_systems]
+        electrons = jnp.concatenate([s.electrons for s in flat_systems], axis=-2)
+        nuclei = jnp.concatenate([s.nuclei for s in flat_systems], axis=-2)
+        mol_data = jtu.tree_map(
+            lambda *x: jnp.concatenate(x, axis=0), *[s.mol_data for s in flat_systems]
+        )
+        return Systems(tuple(spins), tuple(charges), electrons, nuclei, mol_data)
 
 
 T = TypeVar('T')

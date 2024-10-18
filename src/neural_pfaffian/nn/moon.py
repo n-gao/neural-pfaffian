@@ -125,7 +125,7 @@ class MoonEmbedding(ReparamModule):
         mask = systems.spin_mask[systems.elec_elec_idx[0]]
         e_n_i, e_n_m, _ = systems.elec_nuc_idx
         e_n_m += systems.n_elec
-        e_n_m[~mask] += systems.n_nuc  # aggregate separately for each spin
+        e_n_m[mask] += systems.n_nuc  # aggregate separately for each spin
         aggregate_inp = segment_sum(
             elec_nuc_emb.reshape(-1, self.embedding_dim),
             np.concatenate([e_n_i, e_n_m]),

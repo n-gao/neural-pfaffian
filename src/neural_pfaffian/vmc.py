@@ -85,8 +85,15 @@ class VMC(Generic[PS, O, OS], PyTreeNode):
     clip_local_energy: float = field(pytree_node=False)
     clip_statistic: ClipStatistic | str = field(pytree_node=False)
 
-    def init(self, key: Array, systems: Systems):
-        params = self.wave_function.init(key, systems)
+    def init(self, key: Array):
+        demo_system = Systems(
+            ((2, 1),),
+            ((3,),),
+            jax.random.uniform(key, (3, 3), dtype=jnp.float32),
+            jnp.zeros((1, 3), dtype=jnp.float32),
+            {},
+        )
+        params = self.wave_function.init(key, demo_system)
         return VMCState(
             params=params,
             optimizer=self.optimizer.init(params),  # type: ignore

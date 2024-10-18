@@ -22,9 +22,9 @@ from neural_pfaffian.vmc import VMC, ClipStatistic
 @pytest.fixture
 def one_system():
     return Systems(
-        spins=((2, 2),),
-        charges=((4,),),
-        electrons=jax.random.normal(jax.random.key(0), (4, 3), dtype=jnp.float32),
+        spins=((2, 1),),
+        charges=((3,),),
+        electrons=jax.random.normal(jax.random.key(0), (3, 3), dtype=jnp.float32),
         nuclei=jax.random.normal(jax.random.key(1), (1, 3), dtype=jnp.float32),
         mol_data={},
     )
@@ -254,7 +254,7 @@ def generalized_wf_params(generalized_wf: GeneralizedWaveFunction, one_system: S
 # Example WF
 @pytest.fixture
 def neural_pfaffian(moon, jastrow_models, efficient_envelope, meta_gnn):
-    pfaffian = Pfaffian(2, 4, efficient_envelope, 10, 0.1, 1.0, 1.0)
+    pfaffian = Pfaffian(3, 4, efficient_envelope, 10, 0.1, 1.0, 1.0)
     return GeneralizedWaveFunction.create(
         WaveFunction(moon, pfaffian, jastrow_models), meta_gnn
     )
@@ -303,8 +303,8 @@ def vmc(neural_pfaffian, preconditioner, mcmc, optimizer):
 
 
 @pytest.fixture
-def vmc_state(vmc: VMC, one_system: Systems):
-    return vmc.init(jax.random.key(0), one_system)
+def vmc_state(vmc: VMC):
+    return vmc.init(jax.random.key(0))
 
 
 @pytest.fixture

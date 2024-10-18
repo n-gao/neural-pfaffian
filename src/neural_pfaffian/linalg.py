@@ -39,7 +39,7 @@ def slog_pfaffian(A: jax.Array) -> tuple[jax.Array, jax.Array]:
     dtype = A.dtype
     n = A.shape[0]
     if n % 2 == 1:
-        return jnp.ones((), dtype=dtype), jnp.array(-jnp.inf, dtype=dtype)
+        return jnp.ones((), dtype=out_dtype), jnp.array(-jnp.inf, dtype=out_dtype)
 
     sign_pfaffian = jnp.ones((), dtype=dtype)
     log_pfaffian = jnp.zeros((), dtype=dtype)
