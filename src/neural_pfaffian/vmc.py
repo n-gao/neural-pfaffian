@@ -23,6 +23,7 @@ from neural_pfaffian.utils.jax_utils import (
     pmean,
     shmap,
 )
+from neural_pfaffian.utils.tree_utils import tree_squared_norm
 
 LocalEnergy = Float[Array, 'batch_size n_mols']
 
@@ -140,24 +141,30 @@ class VMC(Generic[PS, O, OS], PyTreeNode):
         )
         def _step(key: Array, state: VMCState[PS], systems: Systems):
             key = distribute_keys(key)
+            # Sampling
             key, subkey = jax.random.split(key)
             systems = self.mcmc_step(subkey, state, systems)
 
+            # Local energy
             e_l = self.local_energy(state, systems)
             dE_dlogpsi = local_energy_diff(
                 e_l, self.clip_local_energy, ClipStatistic(self.clip_statistic)
             )
 
-            update, preconditioner_state, aux_data = self.preconditioner.apply(
+            # Preconditioning
+            gradient, preconditioner_state, aux_data = self.preconditioner.apply(
                 state.params, systems, dE_dlogpsi, state.preconditioner
             )
 
+            # Update step
+            updates, opt_state = self.optimizer.update(gradient, state.optimizer)  # type: ignore
+            params = optax.apply_updates(state.params, updates)  # type: ignore
+
+            # Logging
             E = pmean(e_l.mean())
             E_std = (pmean(e_l.var(0)) ** 0.5).mean()
-            aux_data = aux_data | dict(E=E, E_std=E_std)
-
-            updates, opt_state = self.optimizer.update(update, state.optimizer)  # type: ignore
-            params = optax.apply_updates(state.params, updates)  # type: ignore
+            grad_norm = tree_squared_norm(gradient) ** 0.5
+            aux_data = aux_data | dict(E=E, E_std=E_std, grad=grad_norm)
 
             return (
                 state.replace(

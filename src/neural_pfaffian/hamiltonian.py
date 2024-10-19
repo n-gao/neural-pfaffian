@@ -81,7 +81,7 @@ def potential_energy(systems: Systems):
     v_ee /= 2  # we counted twice here
 
     v_ne = charges[systems.elec_nuc_idx[1]] / systems.elec_nuc_dists[..., -1]
-    v_ne = segment_sum(v_ne, systems.elec_nuc_idx[2], systems.n_mols)
+    v_ne = -segment_sum(v_ne, systems.elec_nuc_idx[2], systems.n_mols)
 
     nn_i, nn_j, nn_mask = systems.nuc_nuc_idx
     dists = systems.nuc_nuc_dists[..., -1]

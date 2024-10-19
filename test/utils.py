@@ -1,5 +1,6 @@
 import jax
 import jax.numpy as jnp
+import numpy as np
 
 
 def assert_not_float64(x):
@@ -13,7 +14,7 @@ def assert_not_float64(x):
 def assert_finite(x):
     def assert_finite(path, x):
         if isinstance(x, jax.Array):
-            assert jnp.isfinite(x).all(), f'{path} is not finite'
+            assert np.isfinite(x).all(), f'{path} is not finite'
 
     jax.tree_util.tree_map_with_path(assert_finite, x)
 
