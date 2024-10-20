@@ -173,7 +173,9 @@ class Systems(PyTreeNode):
             n = self.nuclei[..., n_idx : n_idx + n_nuc, :]
             e_idx += n_elec
             n_idx += n_nuc
-            result.append(Systems((s,), (c,), e, n, tree_take(self.mol_data, i, 0)))
+            result.append(
+                Systems((s,), (c,), e, n, tree_take(self.mol_data, slice(i, i + 1), 0))
+            )
         return tuple(result)
 
     @property
