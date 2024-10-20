@@ -20,6 +20,7 @@ from neural_pfaffian.utils.jax_utils import (
     REPLICATE_SHARD,
     distribute_keys,
     jit,
+    pgather,
     pmean,
     shmap,
 )
@@ -45,7 +46,7 @@ def clip_local_energies(
         case _:
             raise ValueError(f'Unknown statistic {stat}')
     if clip_local_energy > 0.0:
-        full_e = e_loc
+        full_e = pgather(e_loc, axis=0, tiled=True)
         clip_center = stat_fn(full_e, keepdims=True)
         mad = jnp.mean(jnp.abs(full_e - clip_center), keepdims=True)
         max_dev = clip_local_energy * mad
