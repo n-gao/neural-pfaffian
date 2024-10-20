@@ -116,9 +116,6 @@ class VMC(Generic[PS, O, OS], PyTreeNode):
 
         return init(key, systems)
 
-    def mcmc_step(self, key: Array, state: VMCState[PS], systems: Systems):
-        return self.sampler(key, state.params, systems)
-
     def local_energy(self, state: VMCState, systems: Systems):
         local_energy_fn = make_local_energy(self.wave_function, KineticEnergyOp.FORWARD)
         local_energy_fn = folx.batched_vmap(
@@ -134,6 +131,22 @@ class VMC(Generic[PS, O, OS], PyTreeNode):
         return e_l
 
     @jit
+    def mcmc_step(self, key: Array, state: VMCState[PS], systems: Systems):
+        @shmap(
+            in_specs=(REPLICATE_SHARD, state.sharding, systems.sharding),
+            out_specs=systems.sharding,
+            check_rep=False,
+        )
+        def _mcmc_step(key: Array, state: VMCState[PS], systems: Systems):
+            key = distribute_keys(key)
+            # Sampling
+            key, subkey = jax.random.split(key)
+            systems = self.sampler(subkey, state.params, systems)
+            return systems
+
+        return _mcmc_step(key, state, systems)
+
+    @jit
     def step(self, key: Array, state: VMCState[PS], systems: Systems):
         @shmap(
             in_specs=(REPLICATE_SHARD, state.sharding, systems.sharding),
@@ -144,7 +157,7 @@ class VMC(Generic[PS, O, OS], PyTreeNode):
             key = distribute_keys(key)
             # Sampling
             key, subkey = jax.random.split(key)
-            systems = self.mcmc_step(subkey, state, systems)
+            systems = self.sampler(subkey, state.params, systems)
 
             # Local energy
             e_l = self.local_energy(state, systems)

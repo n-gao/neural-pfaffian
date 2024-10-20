@@ -1,5 +1,4 @@
 import jax
-import jax.numpy as jnp
 from fixtures import *  # noqa: F403
 
 from neural_pfaffian.utils.jax_utils import BATCH_SHARD, REPLICATE_SHARD, shmap
@@ -20,7 +19,8 @@ def test_preconditioner(preconditioner, neural_pfaffian_params, batched_systems)
         check_rep=False,
     )
     apply = jax.jit(apply)
-    dE_dlogpsi = jnp.zeros(
+    dE_dlogpsi = jax.random.normal(
+        jax.random.PRNGKey(123),
         (*batched_systems.electrons.shape[:-2], batched_systems.n_mols),
         dtype=batched_systems.electrons.dtype,
     )

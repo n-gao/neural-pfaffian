@@ -140,7 +140,7 @@ class Spring(PyTreeNode, Preconditioner[SpringState]):
             return jac @ jac.T + remainder @ remainder.T / n_dev
 
         # Compute covariance
-        JT_J = jnp.zeros((N, N), dtype=jnp.float64)
+        JT_J = jnp.zeros((N, N), dtype=self.dtype)
         for i in range(len(jacs[0])):
             JT_J += to_covariance([j[i] for j in jacs])
         JT_J = psum_if_pmap(JT_J)
@@ -161,9 +161,9 @@ class Spring(PyTreeNode, Preconditioner[SpringState]):
         decayed_last_grad = tree_mul(state.last_grad, self.decay_factor)
         epsilon_tilde = dE_dlogpsi * normalization - jvp(decayed_last_grad)
         epsilon_tilde = pgather(epsilon_tilde, axis=0, tiled=True)
-        epsilon_tilde = epsilon_tilde.astype(jnp.float64).reshape(-1)
+        epsilon_tilde = epsilon_tilde.astype(self.dtype).reshape(-1)
 
-        T = JT_J + state.damping * jnp.eye(N) + 1 / N
+        T = JT_J + state.damping * jnp.eye(N, dtype=JT_J.dtype) + 1 / N
         # mathematically does nothing but may have better numerics
         T = (T + T.T) / 2
 
