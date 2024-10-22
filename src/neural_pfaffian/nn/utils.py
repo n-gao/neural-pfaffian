@@ -39,7 +39,7 @@ class GatedLinearUnit(nn.Module):
 
 
 @vectorize(signature='(a,b)->(c,d)', excluded={1, 2, 3})
-def pad_block(
+def pad_block_constant(
     x: Array, top_right: ArrayLike, bottom_left: ArrayLike, bottom_right: ArrayLike
 ):
     n, m = x.shape
@@ -48,3 +48,13 @@ def pad_block(
     bl = jnp.full((1, m), bottom_left, dtype=dtype)
     br = jnp.full((1, 1), bottom_right, dtype=dtype)
     return jnp.block([[x, tr], [bl, br]])
+
+
+@vectorize(signature='(a,b),(a),(b),()->(c,d)')
+def block(x: Array, top_right: Array, bottom_left: Array, bottom_right: Array):
+    return jnp.block(
+        [
+            [x, top_right[:, None]],
+            [bottom_left[None], bottom_right[None, None]],
+        ]
+    )

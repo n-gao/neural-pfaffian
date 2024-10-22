@@ -6,8 +6,7 @@ import numpy as np
 import pyscf
 from jaxtyping import Array, Float
 
-from neural_pfaffian.systems import Electrons
-
+Electrons = Float[Array, '... n_elec 3']
 HFOrbitals = tuple[Float[Array, '... n_up n_up'], Float[Array, '... n_down n_down']]  # noqa: F722
 
 
@@ -47,7 +46,7 @@ def make_hf_orbitals(mol: pyscf.gto.Mole) -> HFOrbitalFn:
 
 
 def make_hf_logpsi(hf_orbitals: HFOrbitalFn):
-    def logpsi(params, electrons: Electrons, static):
+    def logpsi(electrons: Electrons):
         up_orbitals, dn_orbitals = hf_orbitals(electrons)
         up_logdet = jnp.linalg.slogdet(up_orbitals)[1]
         dn_logdet = jnp.linalg.slogdet(dn_orbitals)[1]

@@ -1,5 +1,5 @@
 from collections import defaultdict
-from typing import Generic, NamedTuple, Sequence, TypeVar
+from typing import Any, Callable, Generic, NamedTuple, Sequence, TypeVar
 
 import jax
 import jax.numpy as jnp
@@ -158,3 +158,19 @@ def batch(data: Sequence[T], n: int) -> Sequence[Sequence[T]]:
     - batched data
     """
     return [data[i : i + n] for i in range(0, len(data), n)]
+
+
+def itemgetter(*items: Any) -> Callable[[Sequence[T]], tuple[T, ...]]:
+    """
+    Implementation of itemgetter that always returns a tuple.
+
+    Args:
+    - items: items to get
+    Return:
+    - function that returns a tuple of the items
+    """
+
+    def g(obj: Sequence[T]) -> tuple[T, ...]:
+        return tuple(obj[item] for item in items)
+
+    return g

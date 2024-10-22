@@ -1,4 +1,4 @@
-from operator import itemgetter
+from typing import Sequence
 
 import einops
 import flax.linen as nn
@@ -13,15 +13,16 @@ from neural_pfaffian.hf import HFOrbitals
 from neural_pfaffian.linalg import (
     cayley_transform,
     skewsymmetric_quadratic,
+    slog_pfaffian,
     slog_pfaffian_skewsymmetric_quadratic,
     to_skewsymmetric_orthogonal,
 )
 from neural_pfaffian.nn.envelopes import Envelope
 from neural_pfaffian.nn.module import ParamTypes, ReparamModule
-from neural_pfaffian.nn.utils import pad_block
+from neural_pfaffian.nn.utils import block
 from neural_pfaffian.nn.wave_function import OrbitalsP
 from neural_pfaffian.systems import Systems, chunk_electron
-from neural_pfaffian.utils import EMAState, ema_make, ema_update, ema_value
+from neural_pfaffian.utils import EMAState, ema_make, ema_update, ema_value, itemgetter
 from neural_pfaffian.utils.jax_utils import pmean_if_pmap
 
 
@@ -29,16 +30,11 @@ def _hf_to_full(hf_up: Array, hf_down: Array):
     n_up, n_down = hf_up.shape[-2], hf_down.shape[-2]
     return jnp.concatenate(
         [
-            jnp.concatenate([hf_up, jnp.zeros((*hf_up.shape[:-1], n_down))], axis=-2),
-            jnp.concatenate([jnp.zeros((*hf_down.shape[:-1], n_up)), hf_down], axis=-2),
+            jnp.concatenate([hf_up, jnp.zeros((*hf_up.shape[:-1], n_down))], axis=-1),
+            jnp.concatenate([jnp.zeros((*hf_down.shape[:-1], n_up)), hf_down], axis=-1),
         ],
-        axis=-1,
+        axis=-2,
     )
-
-
-class PfaffianOrbitals(PyTreeNode):
-    orbitals: Float[Array, 'mols det elec orbitals']
-    antisymmetrizer: Float[Array, 'mols det orbitals orbitals']
 
 
 class PerNucOrbitals(ReparamModule):
@@ -61,6 +57,7 @@ class PerNucOrbitals(ReparamModule):
             param_type=ParamTypes.NUCLEI,
             chunk_axis=-1,
         )
+        # Set envelopes output correctly
         env = self.envelope(systems)
 
         result: list[Array] = []
@@ -89,13 +86,19 @@ class PfaffianPretrainingState(PyTreeNode):
     pfaffian: Float[Array, 'n_el n_el']
 
 
+class PfaffianOrbitals(PyTreeNode):
+    orbitals: Float[Array, 'mols det elec orbitals']
+    antisymmetrizer: Float[Array, 'mols det orbitals orbitals']
+    orb_A_orb_product: Float[Array, 'mols det elec elec']
+
+
 class Pfaffian(
     ReparamModule,
     OrbitalsP[PfaffianOrbitals, EMAState[PfaffianPretrainingState]],
 ):
     determinants: int
     orb_per_nuc: int
-    envelopes: Envelope
+    envelope: Envelope
 
     hf_match_steps: int
     hf_match_lr: float
@@ -113,7 +116,7 @@ class Pfaffian(
             chunk_axis=-1,
         )
         # Set envelopes output correctly
-        env = self.envelopes.clone(
+        env = self.envelope.clone(
             out_dim=self.orb_per_nuc * self.determinants, out_per_nuc=True
         )
 
@@ -124,18 +127,24 @@ class Pfaffian(
         diff_orbs = PerNucOrbitals(
             self.determinants, self.orb_per_nuc, env.clone(pi_init=0.0)
         )(systems, elec_embeddings)
+        # If n_elec is odd, we need an extra orbital
+        fill_orbs = PerNucOrbitals(
+            self.determinants, 1, env.clone(out_dim=self.determinants, pi_init=1.0)
+        )(systems, elec_embeddings)
 
         result = []
-        for diag, offdiag, A, (spins, charges) in zip(
+        for diag, offdiag, fill, A, (spins, charges) in zip(
             same_orbs,
             diff_orbs,
+            fill_orbs,
             systems.group(A, A_meta.param_type.value.chunk_fn),
             systems.unique_spins_and_charges,
         ):
             n_elec, n_up, n_nuc = sum(spins), spins[0], len(charges)
 
             @jax.vmap  # vmap over different molecules
-            def _orbitals(diag: Array, offdiag: Array, A: Array):
+            def _orbitals(diag: Array, offdiag: Array, A: Array, fill: Array):
+                # Orbitals
                 uu, dd, ud, du = diag[:n_up], diag[n_up:], offdiag[:n_up], offdiag[n_up:]
                 orbitals = jnp.concatenate(
                     [
@@ -144,6 +153,8 @@ class Pfaffian(
                     ],
                     axis=0,
                 )  # (n_elec, 2*n_orbs, n_det)
+                orbitals = jnp.moveaxis(orbitals, -1, 0)  # (n_det, n_elec, 2*n_orbs)
+
                 # A: (2*n_orbs, 2*n_orbs, n_det)
                 A = einops.rearrange(A, '(n1 n2) o1 o2 d -> d (n1 o1) (n2 o2)', n1=n_nuc)
                 A_diag = (A - A.mT) / 2
@@ -155,21 +166,32 @@ class Pfaffian(
                     ],
                     axis=1,
                 )
-                orbitals = jnp.moveaxis(orbitals, -1, 0)  # (n_det, n_elec, 2*n_orbs)
-                if n_elec % 2 == 1:
-                    orbitals = pad_block(orbitals, 0, 0, 1)
-                    A = pad_block(A, 1, -1, 0)
-                return PfaffianOrbitals(orbitals, A)
 
-            result.append(_orbitals(diag, offdiag, A))
+                # fill - orbitals = n_nuc
+                fill = einops.rearrange(fill, 'elec orb det -> det elec orb').sum(axis=-1)
+
+                # Product
+                orb_A_orb_product = skewsymmetric_quadratic(orbitals, A)
+                if n_elec % 2 == 1:
+                    orb_A_orb_product = block(
+                        orb_A_orb_product, fill, -fill, jnp.zeros((), dtype=fill.dtype)
+                    )
+                return PfaffianOrbitals(orbitals, A, orb_A_orb_product)
+
+            result.append(_orbitals(diag, offdiag, A, fill))
         return result
 
     def to_slog_psi(self, systems: Systems, orbitals: list[PfaffianOrbitals]):
         signs, logpsis = [], []
         for orb in orbitals:
-            sign, logpsi = slog_pfaffian_skewsymmetric_quadratic(
-                orb.orbitals, orb.antisymmetrizer
-            )
+            if orb.orbitals.shape[-2] == orb.orb_A_orb_product.shape[-2]:
+                # We can use the fused version
+                sign, logpsi = slog_pfaffian_skewsymmetric_quadratic(
+                    orb.orbitals, orb.antisymmetrizer
+                )
+            else:
+                # We need to act on the padded version
+                sign, logpsi = slog_pfaffian(orb.orb_A_orb_product)
             logpsi, sign = jax.nn.logsumexp(logpsi, axis=1, b=sign, return_sign=True)
             signs.append(sign)
             logpsis.append(logpsi)
@@ -181,9 +203,9 @@ class Pfaffian(
     def match_hf_orbitals(
         self,
         systems: Systems,
-        hf_orbitals: list[HFOrbitals],  # list of molecules
-        grouped_orbs: list[PfaffianOrbitals],  # grouped by molecules
-        state: list[EMAState[PfaffianPretrainingState] | None],  # list of molecules
+        hf_orbitals: Sequence[HFOrbitals],  # list of molecules
+        grouped_orbs: Sequence[PfaffianOrbitals],  # grouped by molecules
+        state: Sequence[EMAState[PfaffianPretrainingState] | None],  # list of molecules
     ):
         @jax.vmap
         def hf_match(
@@ -225,13 +247,13 @@ class Pfaffian(
             # Prepare NN
             # Orbital matching
             nn_up = pf_orbs.orbitals[..., :n_up, :n_orbs]
-            nn_down = pf_orbs.orbitals[..., n_up:, :n_orbs]
+            nn_down = pf_orbs.orbitals[..., n_up:, n_orbs:]
             # Pfaffian matching
-            nn_pf = skewsymmetric_quadratic(pf_orbs.orbitals, pf_orbs.antisymmetrizer)
+            nn_pf = pf_orbs.orb_A_orb_product
 
             def transform(state: PfaffianPretrainingState):
                 orbitals = jax.vmap(cayley_transform)(state.orbitals)
-                pfaffian = jax.vmap(to_skewsymmetric_orthogonal)(state.pfaffian)
+                pfaffian = to_skewsymmetric_orthogonal(state.pfaffian)
                 return orbitals, pfaffian
 
             def loss(state: PfaffianPretrainingState, final: bool = False):
@@ -293,7 +315,7 @@ class Pfaffian(
         def stack(*x):
             return jnp.stack(x)
 
-        out_state: list[EMAState[PfaffianPretrainingState]] = []
+        out_state: Sequence[EMAState[PfaffianPretrainingState]] = []
         loss = jnp.zeros((), dtype=jnp.float32)
         for idx, pfaff_orbs in zip(systems.unique_indices, grouped_orbs):
             getter = itemgetter(*idx)
@@ -306,7 +328,7 @@ class Pfaffian(
 
             # Matching
             loss_i, state_i = hf_match(hf_up, hf_down, pfaff_orbs, state_i)
-            loss += loss_i
+            loss += loss_i.sum()
 
             # out_state is now sorted by the unique indices and not by the original batch!
             for i in range(len(idx)):

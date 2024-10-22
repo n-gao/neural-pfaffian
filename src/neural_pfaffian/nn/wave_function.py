@@ -57,9 +57,9 @@ class OrbitalsP(Protocol[Orb, S]):
     def match_hf_orbitals(
         self,
         systems: Systems,
-        hf_orbitals: list[HFOrbitals],
-        grouped_orbs: list[Orb],
-        state: list[S] | None,
+        hf_orbitals: Sequence[HFOrbitals],
+        grouped_orbs: Sequence[Orb],
+        state: Sequence[S | None],
     ) -> tuple[Loss, list[S]]: ...
 
 

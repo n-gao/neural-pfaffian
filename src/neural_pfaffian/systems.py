@@ -13,9 +13,11 @@ import jax.numpy as jnp
 import jax.tree_util as jtu
 import numpy as np
 import numpy.typing as npt
+import pyscf
 from flax.struct import PyTreeNode, field
 from jaxtyping import Array, ArrayLike, Float, Integer, PyTree
 
+from neural_pfaffian.hf import HFOrbitalFn, make_hf_orbitals
 from neural_pfaffian.utils import adj_idx, merge_slices, unique
 from neural_pfaffian.utils.jax_utils import BATCH_SHARD, REPLICATE_SHARD
 from neural_pfaffian.utils.tree_utils import tree_take
@@ -162,21 +164,25 @@ class Systems(PyTreeNode):
             axis=-1,
         )
 
+    def __getitem__(self, idx):
+        if isinstance(idx, int):
+            e_idx = np.cumsum((0,) + self.n_elec_by_mol)[idx]
+            n_idx = np.cumsum((0,) + self.n_nuc_by_mol)[idx]
+            return Systems(
+                (self.spins[idx],),
+                (self.charges[idx],),
+                self.electrons[..., e_idx : e_idx + self.n_elec_by_mol[idx], :],
+                self.nuclei[..., n_idx : n_idx + self.n_nuc_by_mol[idx], :],
+                tree_take(self.mol_data, slice(idx, idx + 1), 0),
+            )
+        elif isinstance(idx, slice):
+            return Systems.merge([self[i] for i in range(*idx.indices(self.n_mols))])
+        else:
+            raise NotImplementedError
+
     @property
     def sub_configs(self):
-        result: list[Systems] = []
-        e_idx = n_idx = 0
-        for i, (s, c) in enumerate(zip(self.spins, self.charges)):
-            n_elec = sum(s)
-            n_nuc = len(c)
-            e = self.electrons[..., e_idx : e_idx + n_elec, :]
-            n = self.nuclei[..., n_idx : n_idx + n_nuc, :]
-            e_idx += n_elec
-            n_idx += n_nuc
-            result.append(
-                Systems((s,), (c,), e, n, tree_take(self.mol_data, slice(i, i + 1), 0))
-            )
-        return tuple(result)
+        return tuple(self[i] for i in range(self.n_mols))
 
     @property
     def spins_and_charges(self):
@@ -288,6 +294,36 @@ class Systems(PyTreeNode):
             mol_data=REPLICATE_SHARD,  # molecule data is replicated
         )
 
+    def pyscf_molecules(self, basis: str):
+        # Only works unjitted
+        return tuple(
+            pyscf.gto.M(
+                atom=[
+                    (c, np.asarray(pos)) for c, pos in zip(mol.flat_charges, mol.nuclei)
+                ],
+                charge=sum(mol.flat_charges) - mol.n_elec,
+                spin=mol.spins[0][0] - mol.spins[0][1],
+                basis=basis,
+                unit='bohr',
+            )
+            for mol in self.sub_configs
+        )
+
+    def hf_functions(self, basis: str):
+        # Only works unjitted
+        return tuple(make_hf_orbitals(mol) for mol in self.pyscf_molecules(basis))
+
+    def with_hf(self, basis: str) -> 'SystemsWithHF':
+        return SystemsWithHF(
+            self.spins,
+            self.charges,
+            self.electrons,
+            self.nuclei,
+            self.mol_data,
+            self.hf_functions(basis),
+            tuple([None] * self.n_mols),
+        )
+
     def __eq__(self, other):
         if not isinstance(other, Systems):
             return False
@@ -316,6 +352,41 @@ class Systems(PyTreeNode):
             lambda *x: jnp.concatenate(x, axis=0), *[s.mol_data for s in flat_systems]
         )
         return Systems(tuple(spins), tuple(charges), electrons, nuclei, mol_data)
+
+
+class SystemsWithHF(Systems):
+    hf_functions: tuple[HFOrbitalFn, ...] = field(pytree_node=False)
+    cache: tuple[PyTree[Array], ...]
+
+    @property
+    def to_systems(self):
+        return Systems(
+            self.spins, self.charges, self.electrons, self.nuclei, self.mol_data
+        )
+
+    @property
+    def hf_orbitals(self):
+        return tuple(
+            hf_fn(sys.electrons)
+            for hf_fn, sys in zip(self.hf_functions, self.sub_configs)
+        )
+
+    @property
+    def molecule_vmap(self):
+        return super().molecule_vmap.replace(cache=0)
+
+    @property
+    def electron_vmap(self):
+        return super().electron_vmap.replace(cache=None)
+
+    @property
+    def sharding(self):
+        return self.replace(
+            electrons=BATCH_SHARD,  # electons are batched per molecule
+            nuclei=REPLICATE_SHARD,  # nuclei are replicated
+            mol_data=REPLICATE_SHARD,  # molecule data is replicated
+            cache=REPLICATE_SHARD,  # cache is replicated
+        )
 
 
 T = TypeVar('T')

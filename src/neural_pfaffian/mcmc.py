@@ -1,4 +1,4 @@
-from typing import Callable, NamedTuple, Protocol, Sequence
+from typing import Callable, NamedTuple, Protocol, Sequence, TypeVar
 
 import jax
 import jax.numpy as jnp
@@ -113,6 +113,9 @@ def make_mh_update(
     return mh_update
 
 
+T = TypeVar('T', bound=Systems)
+
+
 class MetroplisHastings(PyTreeNode):
     wave_function: GeneralizedWaveFunction
     steps: int = field(pytree_node=False)
@@ -121,14 +124,14 @@ class MetroplisHastings(PyTreeNode):
     target_pmove: float
     error: float
 
-    def init(self, key: Array, systems: Systems):
+    def init(self, key: Array, systems: T) -> T:
         if _WIDTH_KEY not in systems.mol_data:
             return systems.set_mol_data(
                 _WIDTH_KEY, self.width_scheduler.init(systems.n_mols)
             )
         return systems
 
-    def __call__(self, key: Array, params: WaveFunctionParameters, systems: Systems):
+    def __call__(self, key: Array, params: WaveFunctionParameters, systems: T) -> T:
         # Fix the per molecule parameters and do not recompute them
         wf_fixed = self.wave_function.fix_structure(params, systems)
         # Get current width
