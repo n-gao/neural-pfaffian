@@ -255,12 +255,12 @@ if folx is not None:
 
 def cayley_transform(x: jax.Array) -> jax.Array:
     x = (x - x.mT) / 2
-    I = jnp.eye(x.shape[-1])
+    I = jnp.eye(x.shape[-1], dtype=x.dtype)
     Q = jnp.linalg.solve(x + I, x - I)
     return Q @ Q
 
 
 def to_skewsymmetric_orthogonal(x: jax.Array):
     # The skew-symmetric identity matrix
-    J = block_diag(*[jnp.array([[0, 1], [-1, 0]])] * (x.shape[-1] // 2))
+    J = block_diag(*[jnp.array([[0, 1], [-1, 0]], dtype=x.dtype)] * (x.shape[-1] // 2))
     return skewsymmetric_quadratic(cayley_transform(x), J)
