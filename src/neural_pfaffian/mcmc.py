@@ -69,7 +69,7 @@ def make_width_scheduler(
         )
         upd_width = jnp.where(pm_mean > target_pmove + error, upd_width * 1.1, upd_width)
         width = jnp.where(
-            jnp.mod(state.i, window_size) == 0,
+            jnp.mod(i, window_size) == 0,
             upd_width,
             state.width,
         )
@@ -113,7 +113,7 @@ def make_mh_update(
     return mh_update
 
 
-T = TypeVar('T', bound=Systems)
+S = TypeVar('S', bound=Systems)
 
 
 class MetroplisHastings(PyTreeNode):
@@ -124,14 +124,14 @@ class MetroplisHastings(PyTreeNode):
     target_pmove: float
     error: float
 
-    def init(self, key: Array, systems: T) -> T:
+    def init_systems(self, key: Array, systems: S) -> S:
         if _WIDTH_KEY not in systems.mol_data:
             return systems.set_mol_data(
                 _WIDTH_KEY, self.width_scheduler.init(systems.n_mols)
             )
         return systems
 
-    def __call__(self, key: Array, params: WaveFunctionParameters, systems: T) -> T:
+    def __call__(self, key: Array, params: WaveFunctionParameters, systems: S) -> S:
         # Fix the per molecule parameters and do not recompute them
         wf_fixed = self.wave_function.fix_structure(params, systems)
         # Get current width

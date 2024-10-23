@@ -6,6 +6,9 @@ import jax.numpy as jnp
 import jax.tree_util as jtu
 import numpy as np
 import numpy.typing as npt
+from jaxtyping import ArrayLike
+
+from neural_pfaffian.utils.jax_utils import jit
 
 T = TypeVar('T')
 
@@ -111,8 +114,8 @@ def ema_make(tree: T) -> EMAState[T]:
     return EMAState(jtu.tree_map(jnp.zeros_like, tree), jnp.zeros(()))
 
 
-@jax.jit
-def ema_update(data: EMAState[T], value: T, decay: float = 0.9) -> EMAState[T]:
+@jit
+def ema_update(data: EMAState[T], value: T, decay: ArrayLike = 0.9) -> EMAState[T]:
     """
     Updates an EMA state with a new value.
 
@@ -129,8 +132,8 @@ def ema_update(data: EMAState[T], value: T, decay: float = 0.9) -> EMAState[T]:
     )
 
 
-@jax.jit
-def ema_value(data: EMAState[T], backup: T = None) -> T:
+@jit
+def ema_value(data: EMAState[T], backup: T | None = None) -> T:
     """
     Computes the EMA value of an EMA state.
 
@@ -147,7 +150,7 @@ def ema_value(data: EMAState[T], backup: T = None) -> T:
     return jtu.tree_map(lambda x, y: jnp.where(is_nan, y, x / weight), tree, backup)
 
 
-def batch(data: Sequence[T], n: int) -> Sequence[Sequence[T]]:
+def batch(data: Sequence[T], n: int) -> list[Sequence[T]]:
     """
     Batches data into chunks of size n.
 

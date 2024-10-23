@@ -15,7 +15,7 @@ from neural_pfaffian.nn.module import (
     ParamMeta,
     ReparamModule,
 )
-from neural_pfaffian.systems import Systems
+from neural_pfaffian.systems import Systems, SystemsWithHF
 
 
 class Parameters(TypedDict):
@@ -59,8 +59,10 @@ class OrbitalsP(Protocol[Orb, S]):
         systems: Systems,
         hf_orbitals: Sequence[HFOrbitals],
         grouped_orbs: Sequence[Orb],
-        state: Sequence[S | None],
+        state: Sequence[S],
     ) -> tuple[Loss, list[S]]: ...
+
+    def init_systems(self, key: Array, systems: SystemsWithHF) -> SystemsWithHF: ...
 
 
 class JastrowP(Protocol):

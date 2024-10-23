@@ -3,10 +3,12 @@ from typing import (
     Generator,
     Literal,
     Protocol,
+    Self,
     Sequence,
     TypeVar,
     TypeVarTuple,
     overload,
+    override,
 )
 
 import jax.numpy as jnp
@@ -64,10 +66,11 @@ def chunk_electron_electron(s: Spins, c: Charges) -> int:
 
 T = TypeVar('T')
 Ts = TypeVarTuple('Ts')
+S = TypeVar('S', bound='Systems')
 
 
 @functools.total_ordering
-class Systems(PyTreeNode):
+class Systems(Sequence['Systems'], PyTreeNode):
     spins: tuple[Spins, ...] = field(pytree_node=False)
     charges: tuple[Charges, ...] = field(pytree_node=False)
     electrons: Electrons
@@ -163,22 +166,6 @@ class Systems(PyTreeNode):
             [dists, jnp.linalg.norm(dists, axis=-1, keepdims=True)],
             axis=-1,
         )
-
-    def __getitem__(self, idx):
-        if isinstance(idx, int):
-            e_idx = np.cumsum((0,) + self.n_elec_by_mol)[idx]
-            n_idx = np.cumsum((0,) + self.n_nuc_by_mol)[idx]
-            return Systems(
-                (self.spins[idx],),
-                (self.charges[idx],),
-                self.electrons[..., e_idx : e_idx + self.n_elec_by_mol[idx], :],
-                self.nuclei[..., n_idx : n_idx + self.n_nuc_by_mol[idx], :],
-                tree_take(self.mol_data, slice(idx, idx + 1), 0),
-            )
-        elif isinstance(idx, slice):
-            return Systems.merge([self[i] for i in range(*idx.indices(self.n_mols))])
-        else:
-            raise NotImplementedError
 
     @property
     def sub_configs(self):
@@ -339,19 +326,53 @@ class Systems(PyTreeNode):
         else:
             return self.spins < other.spins
 
-    @staticmethod
-    def merge(systems: Sequence['Systems']) -> 'Systems':
+    def get_nth_molecule(self, idx: int) -> Self:
+        e_idx = np.cumsum((0,) + self.n_elec_by_mol)[idx]
+        n_idx = np.cumsum((0,) + self.n_nuc_by_mol)[idx]
+        return Systems(
+            (self.spins[idx],),
+            (self.charges[idx],),
+            self.electrons[..., e_idx : e_idx + self.n_elec_by_mol[idx], :],
+            self.nuclei[..., n_idx : n_idx + self.n_nuc_by_mol[idx], :],
+            tree_take(self.mol_data, slice(idx, idx + 1), 0),
+        )  # type: ignore
+
+    def __getitem__(self, idx) -> Self:
+        cls = self.__class__
+        if isinstance(idx, int):
+            return self.get_nth_molecule(idx)
+        elif isinstance(idx, slice):
+            return cls.merge([self[i] for i in range(*idx.indices(self.n_mols))])
+        else:
+            raise NotImplementedError
+
+    def __len__(self):
+        return self.n_mols
+
+    def __add__(self, other):
+        if not isinstance(other, self.__class__):
+            raise ValueError(f'Cannot add {self.__class__} with {type(other)}')
+        return Systems(
+            self.spins + other.spins,
+            self.charges + other.charges,
+            jnp.concatenate([self.electrons, other.electrons], axis=-2),
+            jnp.concatenate([self.nuclei, other.nuclei], axis=-2),
+            jtu.tree_map(
+                lambda x, y: jnp.concatenate([x, y], axis=0),
+                self.mol_data,
+                other.mol_data,
+            ),
+        )
+
+    def __radd__(self, other):
+        return self + other
+
+    @classmethod
+    def merge(cls, systems: Sequence[S]) -> S:
         # each system is now a single molecule
         flat_systems = [s for sys in systems for s in sys.sub_configs]
         flat_systems = sorted(flat_systems)
-        spins = [s.spins[0] for s in flat_systems]
-        charges = [s.charges[0] for s in flat_systems]
-        electrons = jnp.concatenate([s.electrons for s in flat_systems], axis=-2)
-        nuclei = jnp.concatenate([s.nuclei for s in flat_systems], axis=-2)
-        mol_data = jtu.tree_map(
-            lambda *x: jnp.concatenate(x, axis=0), *[s.mol_data for s in flat_systems]
-        )
-        return Systems(tuple(spins), tuple(charges), electrons, nuclei, mol_data)
+        return sum(flat_systems[1:], flat_systems[0])
 
 
 class SystemsWithHF(Systems):
@@ -381,11 +402,25 @@ class SystemsWithHF(Systems):
 
     @property
     def sharding(self):
-        return self.replace(
-            electrons=BATCH_SHARD,  # electons are batched per molecule
-            nuclei=REPLICATE_SHARD,  # nuclei are replicated
-            mol_data=REPLICATE_SHARD,  # molecule data is replicated
-            cache=REPLICATE_SHARD,  # cache is replicated
+        return super().sharding.replace(cache=REPLICATE_SHARD)
+
+    @override
+    def get_nth_molecule(self, idx: int) -> Self:
+        return SystemsWithHF(
+            **vars(super().get_nth_molecule(idx)),
+            hf_functions=(self.hf_functions[idx],),
+            cache=(self.cache[idx],),
+        )  # type: ignore
+
+    @override
+    def __add__(self, other):
+        if not isinstance(other, self.__class__):
+            raise ValueError(f'Cannot add {self.__class__} with {type(other)}')
+
+        return SystemsWithHF(
+            **vars(self.to_systems + other.to_systems),
+            hf_functions=self.hf_functions + other.hf_functions,
+            cache=self.cache + other.cache,
         )
 
 

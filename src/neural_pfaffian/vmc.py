@@ -27,6 +27,7 @@ from neural_pfaffian.utils.jax_utils import (
 from neural_pfaffian.utils.tree_utils import tree_squared_norm
 
 LocalEnergy = Float[Array, 'batch_size n_mols']
+S = TypeVar('S', bound=Systems)
 
 
 class ClipStatistic(Enum):
@@ -103,15 +104,15 @@ class VMC(Generic[PS, O, OS], PyTreeNode):
             step=jnp.zeros((), dtype=jnp.int32),
         )
 
-    def init_systems_data(self, key: Array, systems: Systems):
+    def init_systems(self, key: Array, systems: S) -> S:
         @shmap(
             in_specs=(REPLICATE_SHARD, systems.sharding),
             out_specs=systems.sharding,
         )
-        def init(key: Array, systems: Systems):
+        def init(key: Array, systems: S):
             key = distribute_keys(key)
             key, subkey = jax.random.split(key)
-            systems = self.sampler.init(subkey, systems)
+            systems = self.sampler.init_systems(subkey, systems)
             return systems
 
         return init(key, systems)

@@ -41,6 +41,13 @@ class Pretraining(Generic[PS, O, OS], PyTreeNode):
             pre_opt_state=self.optimizer.init(vmc_state.params),  # type: ignore
         )
 
+    def init_systems(self, key: jax.Array, systems: SystemsWithHF) -> SystemsWithHF:
+        key, subkey = jax.random.split(key)
+        systems = self.vmc.wave_function.wave_function.orbital_module.init_systems(
+            subkey, systems
+        )
+        return systems
+
     @jit
     def step(self, key: jax.Array, state: PretrainingState[PS], systems: SystemsWithHF):
         @shmap(

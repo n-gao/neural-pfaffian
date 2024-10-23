@@ -309,4 +309,4 @@ def vmc_state(vmc: VMC):
 
 @pytest.fixture
 def vmc_systems(vmc: VMC, batched_systems: Systems):
-    return vmc.init_systems_data(jax.random.key(7), batched_systems)
+    return vmc.init_systems(jax.random.key(7), batched_systems)

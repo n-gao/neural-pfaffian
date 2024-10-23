@@ -21,7 +21,7 @@ from neural_pfaffian.nn.envelopes import Envelope
 from neural_pfaffian.nn.module import ParamTypes, ReparamModule
 from neural_pfaffian.nn.utils import block
 from neural_pfaffian.nn.wave_function import OrbitalsP
-from neural_pfaffian.systems import Systems, chunk_electron
+from neural_pfaffian.systems import Systems, SystemsWithHF, chunk_electron
 from neural_pfaffian.utils import EMAState, ema_make, ema_update, ema_value, itemgetter
 from neural_pfaffian.utils.jax_utils import pmean_if_pmap
 
@@ -205,14 +205,14 @@ class Pfaffian(
         systems: Systems,
         hf_orbitals: Sequence[HFOrbitals],  # list of molecules
         grouped_orbs: Sequence[PfaffianOrbitals],  # grouped by molecules
-        state: Sequence[EMAState[PfaffianPretrainingState] | None],  # list of molecules
+        state: Sequence[EMAState[PfaffianPretrainingState]],  # list of molecules
     ):
         @jax.vmap
         def hf_match(
             hf_up: jax.Array,
             hf_down: jax.Array,
             pf_orbs: PfaffianOrbitals,
-            state: EMAState[PfaffianPretrainingState] | None,
+            state: EMAState[PfaffianPretrainingState],
         ):
             leading_dims = hf_up.shape[:-2]
             n_up, n_down = hf_up.shape[-2], hf_down.shape[-2]
@@ -296,16 +296,6 @@ class Pfaffian(
 
             # Initialize optimizer
             optimizer = optax.contrib.prodigy(self.hf_match_lr)
-            # Initialize new state if none is given
-            if state is None:
-                state = ema_make(
-                    PfaffianPretrainingState(
-                        orbitals=jnp.zeros((2, n_orbs, n_orbs), dtype=jnp.float32),
-                        pfaffian=jnp.zeros(
-                            (n_up + n_down, n_up + n_down), dtype=jnp.float32
-                        ),
-                    )
-                )
             # Update the state
             state = ema_update(state, optim(optimizer, ema_value(state)), 0.99)
             loss_val = loss(ema_value(state), final=True)
@@ -321,7 +311,7 @@ class Pfaffian(
             hf_orbs, state_i = getter(hf_orbitals), getter(state)
             # Stack the molecules in the first dimension
             hf_up, hf_down = jtu.tree_map(stack, *hf_orbs)
-            state_i = jtu.tree_map(stack, *state_i) if state_i[0] is not None else None
+            state_i = jtu.tree_map(stack, *state_i)
             # for pfaff_orbs, we expect to the see the molecules in the -4 dim. Thus, we should move it to the front
             pfaff_orbs = jtu.tree_map(lambda x: jnp.moveaxis(x, -4, 0), pfaff_orbs)
 
@@ -335,3 +325,19 @@ class Pfaffian(
         # invert the order of the unique indices
         out_state = itemgetter(*systems.inverse_unique_indices)(out_state)
         return loss, out_state
+
+    def init_systems(self, key: Array, systems: SystemsWithHF):
+        states = []
+        for sub_sys in systems.sub_configs:
+            n_up, n_down = sub_sys.spins[0]
+            if sub_sys.n_elec % 2 == 1:
+                n_down += 1
+            n_orbs = sub_sys.n_nuc * self.orb_per_nuc
+            state = ema_make(
+                PfaffianPretrainingState(
+                    orbitals=jnp.zeros((2, n_orbs, n_orbs), dtype=jnp.float32),
+                    pfaffian=jnp.zeros((n_up + n_down, n_up + n_down), dtype=jnp.float32),
+                )
+            )
+            states.append(state)
+        return systems.replace(cache=tuple(states))
