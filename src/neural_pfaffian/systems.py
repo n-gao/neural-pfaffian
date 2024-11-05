@@ -122,7 +122,7 @@ class Systems(Sequence['Systems'], PyTreeNode):
     @property
     def spin_mask(self) -> npt.NDArray[np.int64]:
         return np.array(
-            [idx for n_up, n_down in self.spins for idx in ([0] * n_up + [1] * n_down)]
+            [spin for n_up, n_down in self.spins for spin in ([0] * n_up + [1] * n_down)]
         )
 
     @property

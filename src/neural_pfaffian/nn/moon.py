@@ -132,8 +132,8 @@ class MoonEmbedding(ReparamModule):
 
         # Aggregate to electron and nucleus embeddings
         # We merge a three segment sum for efficiency
-        mask = systems.spin_mask[systems.elec_elec_idx[0]]
         e_n_i, e_n_m, _ = systems.elec_nuc_idx
+        mask = systems.spin_mask[e_n_i].astype(bool)
         e_n_m += systems.n_elec
         e_n_m[mask] += systems.n_nuc  # aggregate separately for each spin
         aggregate_inp = segment_sum(
@@ -166,8 +166,8 @@ class Update(ReparamModule):
     @nn.compact
     def __call__(self, nuc_emb: NucEmbeddings) -> NucEmbeddings:
         n_nuc = nuc_emb[0].shape[0]
-        same = nn.Dense(self.out_dim)
-        diff = nn.Dense(self.out_dim)
+        same = nn.Dense(self.out_dim, use_bias=False)
+        diff = nn.Dense(self.out_dim, use_bias=False)
         up_in, down_in = nuc_emb
         bias = self.reparam(
             'bias',
@@ -196,14 +196,15 @@ class Diffusion(ReparamModule):
     ) -> ElecEmbedding:
         out_emb = nn.Dense(self.out_dim)(elec_emb)
         elec_idx, nuc_idx, _ = systems.elec_nuc_idx
-        edge_spin_mask = systems.spin_mask[elec_idx]
+        edge_spin_mask = systems.spin_mask[elec_idx].astype(bool)
 
         up_inp, down_inp = nuc_emb
         inp = jnp.where(edge_spin_mask[:, None], up_inp[nuc_idx], down_inp[nuc_idx])
 
         weights = nn.Dense(self.out_dim, use_bias=False)(elec_nuc_edge)
-        to_elec = inp * weights
-        out_emb *= (
+        # to_elec = inp * weights
+        to_elec = weights * inp
+        out_emb += (
             segment_sum(to_elec, systems.elec_nuc_idx[0], systems.n_elec)
             / e_normalizer[..., None]
         )
@@ -233,8 +234,8 @@ class Moon(nn.Module, EmbeddingP):
             self.edge_rbf,
         )(systems)
 
-        for _ in range(self.n_layer):
-            nuc_emb = Update(self.dim, self.activation)(nuc_emb)
+        # for _ in range(self.n_layer):
+        #     nuc_emb = Update(self.dim, self.activation)(nuc_emb)
         elec_emb = Diffusion(self.dim, self.activation)(
             systems, elec_emb, nuc_emb, elec_nuc_edge, e_normalizer
         )

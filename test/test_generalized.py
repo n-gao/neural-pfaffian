@@ -1,4 +1,6 @@
 import jax
+import jax.numpy as jnp
+import numpy as np
 import pytest
 from fixtures import *  # noqa: F403
 from numpy.testing import assert_allclose
@@ -19,6 +21,22 @@ def test_fwd_and_bwd(generalized_wf, generalized_wf_params, two_systems):
     assert isinstance(emb_sum, jax.Array)
     assert jax.numpy.isfinite(emb_sum).all()
     assert_finite(grad)
+
+
+def test_independence_embedding(generalized_wf, generalized_wf_params, systems_float64):
+    targets = generalized_wf.embedding(generalized_wf_params, systems_float64)
+    for s, target in zip(
+        systems_float64, jnp.split(targets, np.cumsum(systems_float64.n_elec_by_mol))
+    ):
+        indep = generalized_wf.embedding(generalized_wf_params, s)
+        assert_allclose(indep, target, atol=1e-6)
+
+
+def test_independence_logpsi(generalized_wf, generalized_wf_params, systems_float64):
+    targets = generalized_wf.apply(generalized_wf_params, systems_float64)
+    for s, target in zip(systems_float64, targets):
+        indep = generalized_wf.apply(generalized_wf_params, s)
+        assert_allclose(indep, target, atol=1e-5)
 
 
 def test_fixed_structure(generalized_wf, generalized_wf_params, one_system, two_systems):

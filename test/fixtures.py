@@ -292,7 +292,7 @@ def mcmc(neural_pfaffian: GeneralizedWaveFunction):
 
 @pytest.fixture
 def optimizer():
-    return optax.adam(1e-3)
+    return optax.adam(1e-4)
 
 
 @pytest.fixture

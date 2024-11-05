@@ -93,6 +93,9 @@ class WaveFunction(Generic[Orb, S], ReparamModule):
     def apply(self, params: Parameters, systems: Systems, method=None) -> LogAmplitude:
         return ReparamModule.apply(self, params, systems, method=method)  # type: ignore
 
+    def _embedding(self, systems: Systems) -> ElecEmbedding:
+        return self.embedding_module(systems)
+
     def _orbitals(self, systems: Systems) -> list[Orb]:
         return self.orbital_module(systems, self.embedding_module(systems))
 
@@ -108,6 +111,9 @@ class WaveFunction(Generic[Orb, S], ReparamModule):
 
     def __call__(self, systems: Systems) -> LogAmplitude:
         return self._signed(systems)[1]
+
+    def embedding(self, params: Parameters, systems: Systems) -> ElecEmbedding:
+        return self.apply(params, systems, method=self._embedding)
 
     def orbitals(self, params: Parameters, systems: Systems) -> list[Orb]:
         return self.apply(params, systems, method=self._orbitals)  # type: ignore
@@ -184,6 +190,9 @@ class GeneralizedWaveFunction(Generic[Orb, S], PyTreeNode):
             REPARAM_META_KEY: self.reparam_meta,
         }
         return wf_params
+
+    def embedding(self, params: WaveFunctionParameters, systems: Systems):
+        return self.wave_function.embedding(self.wf_params(params, systems), systems)
 
     def orbitals(self, params: WaveFunctionParameters, systems: Systems):
         return self.wave_function.orbitals(self.wf_params(params, systems), systems)
