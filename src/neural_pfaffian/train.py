@@ -1,8 +1,8 @@
 import jax
 import optax
 import tqdm.auto as tqdm
-
 import wandb
+
 from neural_pfaffian.pretraining import Pretraining
 from neural_pfaffian.systems import Systems, SystemsWithHF
 from neural_pfaffian.utils import batch

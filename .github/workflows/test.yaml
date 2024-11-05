@@ -18,4 +18,4 @@ jobs:
       - name: Create virtual environment
         run: uv sync
       - name: pytest
-        run: pytest
+        run: uv run pytest
