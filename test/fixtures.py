@@ -195,6 +195,7 @@ def global_meta():
         std=1,
         bias=True,
         chunk_axis=None,
+        keep_distr=False,
     )
 
 
@@ -207,6 +208,7 @@ def nuclei_meta():
         std=1,
         bias=True,
         chunk_axis=None,
+        keep_distr=False,
     )
 
 
@@ -219,6 +221,7 @@ def nuclei_nuclei_meta():
         std=1,
         bias=False,
         chunk_axis=None,
+        keep_distr=False,
     )
 
 
@@ -231,6 +234,7 @@ def chunked_meta():
         std=1,
         bias=True,
         chunk_axis=0,
+        keep_distr=False,
     )
 
 
@@ -332,7 +336,7 @@ def fixed_vmc_state(fixed_vmc: VMC):
 
 @pytest.fixture
 def pretrainer(fixed_vmc, optimizer):
-    pretrainer = Pretraining(fixed_vmc, optimizer)
+    pretrainer = Pretraining(fixed_vmc, optimizer, 1e-6)
     return pretrainer
 
 
