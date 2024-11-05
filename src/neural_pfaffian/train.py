@@ -45,7 +45,7 @@ def pretrain(
         optax.scale_by_trust_ratio(),
         optax.scale_by_schedule(lambda t: -1e-3 / (1 + 1e-4 * t)),
     )
-    pretrainer = Pretraining(vmc, optimizer)
+    pretrainer = Pretraining(vmc, optimizer, 1e-6)
     pre_state = pretrainer.init(state)
 
     # Initialize batches
@@ -54,6 +54,7 @@ def pretrain(
         key, subkey = jax.random.split(key)
         batches.append(pretrainer.init_systems(subkey, b.with_hf(basis)))
 
+    step = 0
     for epoch in tqdm.trange(n_epochs):
         for i in range(len(batches)):
             key, subkey = jax.random.split(key)
@@ -61,9 +62,10 @@ def pretrain(
             pre_state, batches[i], log_data = pretrainer.step(
                 subkey, pre_state, batches[i]
             )
-            log_data = jax.tree.map(lambda x: x.item(), log_data)
             # Logging
-            wandb.log(log_data)
+            log_data = jax.tree.map(lambda x: x.item(), log_data)
+            wandb.log({**log_data, 'pretrain_step': step})
+            step += 1
     return pre_state.vmc_state, Systems.merge(batches).to_systems
 
 
@@ -81,12 +83,14 @@ def train(
     batch_keys = jax.random.split(subkey, len(batches))
     batches = list(map(vmc.init_systems, batch_keys, batches))
 
+    step = 0
     for epoch in tqdm.trange(n_epochs):
         for i in range(len(batches)):
             key, subkey = jax.random.split(key)
             # Update step
             state, batches[i], log_data = vmc.step(subkey, state, batches[i])
-            log_data = jax.tree.map(lambda x: x.item(), log_data)
             # Logging
-            wandb.log(log_data)
+            log_data = jax.tree.map(lambda x: x.item(), log_data)
+            wandb.log({**log_data, 'train_step': step})
+            step += 1
     return state, Systems.merge(batches)

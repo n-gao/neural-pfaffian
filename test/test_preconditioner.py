@@ -1,8 +1,8 @@
 import jax
 from fixtures import *  # noqa: F403
+from utils import assert_finite, assert_shape_and_dtype
 
 from neural_pfaffian.utils.jax_utils import BATCH_SHARD, REPLICATE_SHARD, shmap
-from test.utils import assert_finite, assert_shape_and_dtype
 
 
 def test_preconditioner(preconditioner, neural_pfaffian_params, batched_systems):

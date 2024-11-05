@@ -14,6 +14,7 @@ from neural_pfaffian.nn.orbitals import Pfaffian
 from neural_pfaffian.nn.psiformer import PsiFormer
 from neural_pfaffian.nn.wave_function import GeneralizedWaveFunction, WaveFunction
 from neural_pfaffian.preconditioner import Identity, Preconditioner, Spring
+from neural_pfaffian.pretraining import Pretraining
 from neural_pfaffian.systems import Systems
 from neural_pfaffian.vmc import VMC, ClipStatistic
 
@@ -34,7 +35,7 @@ def one_system():
 def two_systems():
     return Systems(
         spins=((2, 2), (3, 3)),
-        charges=((4,), (2, 1)),
+        charges=((4,), (4, 2)),
         electrons=jax.random.normal(jax.random.key(0), (10, 3), dtype=jnp.float32),
         nuclei=jax.random.normal(jax.random.key(1), (3, 3), dtype=jnp.float32),
         mol_data={},
@@ -118,12 +119,12 @@ def embedding_fwdpass(embedding_model: nn.Module):
 # Enveloeps
 @pytest.fixture
 def full_envelope():
-    return FullEnvelope(1, 1, True)
+    return FullEnvelope(1, 1, True, False)
 
 
 @pytest.fixture(scope='function')
 def efficient_envelope():
-    return EfficientEnvelope(1, 1, True, 8)
+    return EfficientEnvelope(1, 1, True, False, 8)
 
 
 @pytest.fixture(params=['full_envelope', 'efficient_envelope'])
@@ -271,11 +272,11 @@ def identity_preconditioner(neural_pfaffian: GeneralizedWaveFunction):
 
 
 @pytest.fixture
-def sping_preconditioner(neural_pfaffian: GeneralizedWaveFunction):
+def spring_preconditioner(neural_pfaffian: GeneralizedWaveFunction):
     return Spring(neural_pfaffian, 1e-3, 0.99, jnp.float64)
 
 
-@pytest.fixture(params=['identity_preconditioner', 'sping_preconditioner'])
+@pytest.fixture(params=['identity_preconditioner', 'spring_preconditioner'])
 def preconditioner(request) -> Preconditioner:
     return request.getfixturevalue(request.param)
 
@@ -310,3 +311,41 @@ def vmc_state(vmc: VMC):
 @pytest.fixture
 def vmc_systems(vmc: VMC, batched_systems: Systems):
     return vmc.init_systems(jax.random.key(7), batched_systems)
+
+
+@pytest.fixture
+def fixed_vmc(neural_pfaffian, spring_preconditioner, mcmc, optimizer):
+    return VMC(
+        wave_function=neural_pfaffian,
+        preconditioner=spring_preconditioner,
+        optimizer=optimizer,
+        sampler=mcmc,
+        clip_local_energy=5.0,
+        clip_statistic=ClipStatistic.MEDIAN,
+    )
+
+
+@pytest.fixture
+def fixed_vmc_state(fixed_vmc: VMC):
+    return fixed_vmc.init(jax.random.key(0))
+
+
+@pytest.fixture
+def pretrainer(fixed_vmc, optimizer):
+    pretrainer = Pretraining(fixed_vmc, optimizer)
+    return pretrainer
+
+
+@pytest.fixture
+def systems_with_hf(batched_systems):
+    return batched_systems.with_hf('sto-6g')
+
+
+@pytest.fixture
+def pretrainer_state(pretrainer, fixed_vmc_state):
+    return pretrainer.init(fixed_vmc_state)
+
+
+@pytest.fixture
+def pretraining_systems(pretrainer, systems_with_hf):
+    return pretrainer.init_systems(jax.random.key(8), systems_with_hf)

@@ -5,7 +5,7 @@ import flax.linen as nn
 import jax
 import numpy as np
 from flax.struct import PyTreeNode, field
-from jaxtyping import Array, ArrayLike, Float
+from jaxtyping import Array, ArrayLike, Float, Integer
 
 from neural_pfaffian.systems import (
     ChunkSizeFunction,
@@ -40,6 +40,7 @@ class ParamMeta(PyTreeNode):
     std: ArrayLike
     bias: bool
     chunk_axis: int | None
+    keep_distr: bool
 
 
 class ReparamModule(nn.Module):
@@ -51,6 +52,7 @@ class ReparamModule(nn.Module):
         param_type: ParamTypes,
         bias: bool = True,
         chunk_axis: int | None = None,
+        keep_distr: bool = False,
     ):
         # Like in self.param, we add the random key
         def init_with_random(*args: *Ts):
@@ -72,34 +74,43 @@ class ReparamModule(nn.Module):
                 std=array.std(),
                 bias=bias,
                 chunk_axis=chunk_axis,
+                keep_distr=keep_distr,
             )
 
         meta = self.variable(REPARAM_META_KEY, name, array_to_meta, parameter)
         return parameter, meta.value
 
-    def static_or_reparam(
+    def edge_reparam(
         self,
         name: str,
         systems: Systems,
         init_fn: Callable[[jax.Array, tuple[int, ...]], A],
         shape: tuple[int, ...],
         max_charge: int | None,
+        center_idx: Integer[ArrayLike, ' n_center'] | None,
+        keep_distr: bool = False,
     ) -> Float[Array, ' n_nuc *shape']:
         # A utility function to reuse the same modules within the wave function and the meta network.
         n_out = np.prod(shape).item()
+        # If the indices are missing, we just use the same params for all.
+        if center_idx is None:
+            return self.param(name, init_fn, shape)
         if max_charge is None:
+            # Adaption per nucleus
             return self.reparam(
                 name,
                 init_fn,
                 (systems.n_nuc, *shape),
                 param_type=ParamTypes.NUCLEI,
-            )[0]
+                keep_distr=keep_distr,
+            )[0][center_idx]
         elif max_charge >= 0:
+            # Adaption per species
             return nn.Embed(
                 num_embeddings=max_charge,
                 features=n_out,
                 embedding_init=lambda key, shape, dtype: init_fn(key, tuple(shape)),
                 name=name,
-            )(systems.flat_charges).reshape(systems.n_nuc, *shape)
+            )(systems.flat_charges).reshape(systems.n_nuc, *shape)[center_idx]
         else:
-            return self.param(name, init_fn, shape)
+            raise ValueError(f'Invalid max_charge {max_charge}')

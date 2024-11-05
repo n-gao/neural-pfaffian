@@ -98,6 +98,7 @@ class FermiNetFeatures(ReparamModule):
             jnn.initializers.normal(1 / np.sqrt(h_one.shape[-1]), jnp.float32),
             (systems.n_nuc, h_one.shape[-1], self.out_dim),
             param_type=ParamTypes.NUCLEI,
+            keep_distr=True,
         )[0][nuc_idx]
         bias = self.reparam(
             'bias',

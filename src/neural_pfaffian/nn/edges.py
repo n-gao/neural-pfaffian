@@ -38,17 +38,15 @@ class ExponentialRbf(Rbf):
         edges: Float[Array, '... 3+1'],
         center_idx: npt.NDArray[np.int64] | None,
     ):
-        sigma = nn.softplus(
-            self.static_or_reparam(
-                'sigma',
-                systems,
-                shifted_normal(self.sigma_init),
-                (self.out_dim,),
-                self.max_charge,
-            )
+        sigma = self.edge_reparam(
+            'sigma',
+            systems,
+            shifted_normal(self.sigma_init),
+            (self.out_dim,),
+            self.max_charge,
+            center_idx,
         )
-        if center_idx is not None:
-            sigma = sigma[center_idx]
+        sigma = nn.softplus(sigma)
         return jnp.exp(-jnp.abs(edges[..., -1:] / sigma))
 
 
@@ -61,16 +59,15 @@ class BesselRbf(Rbf):
         center_idx: npt.NDArray[np.int64] | None,
     ):
         sigma = nn.softplus(
-            self.static_or_reparam(
+            self.edge_reparam(
                 'sigma',
                 systems,
                 shifted_normal(self.sigma_init),
                 (self.out_dim,),
                 self.max_charge,
+                center_idx,
             )
         )
-        if center_idx is not None:
-            sigma = sigma[center_idx]
         frequencies = jnp.arange(1, self.out_dim + 1) * jnp.pi
 
         safe_dist = edges[..., -1:] + 1e-6
@@ -98,28 +95,28 @@ class EdgeEmbedding(ReparamModule):
         edges: Float[Array, '... 3+1'],
         center_idx: npt.NDArray[np.int64] | None = None,
     ):
-        bias = self.static_or_reparam(
+        bias = self.edge_reparam(
             'bias',
             systems,
             jax.nn.initializers.normal(2, jnp.float32),
             (self.hidden_dim,),
             self.max_charge,
+            center_idx,
         )
-        kernel = self.static_or_reparam(
+        kernel = self.edge_reparam(
             'kernel',
             systems,
             jax.nn.initializers.normal(1 / 2, jnp.float32),
             (4, self.hidden_dim),
             self.max_charge,
+            center_idx,
+            keep_distr=True,
         )
-        if center_idx is not None:
-            kernel = kernel[center_idx]
-            bias = bias[center_idx]
 
         hidden = jnp.einsum('...d,...dk->...k', edges, kernel) + bias
         hidden = self.activation(hidden)
         env = self.rbf(self.n_rbf, self.max_charge, self.sigma_init)(
-            systems, hidden, center_idx
+            systems, edges, center_idx
         )
         hidden = (hidden[..., None] * env[..., None, :]).reshape(
             *hidden.shape[:-1], self.hidden_dim * self.n_rbf
@@ -129,7 +126,7 @@ class EdgeEmbedding(ReparamModule):
 
 class NormEnvelope(ReparamModule):
     # If set, we use charge embeddings instead of .reparam
-    max_charge: int | None
+    max_charge: int | None = None
     sigma_init: float = 10
 
     @nn.compact
@@ -137,7 +134,7 @@ class NormEnvelope(ReparamModule):
         self,
         systems: Systems,
         edges: Float[Array, '... 3+1'],
-        center_idx: npt.NDArray[np.int64] | None,
+        center_idx: npt.NDArray[np.int64] | None = None,
     ):
         return ExponentialRbf(1, self.max_charge, self.sigma_init)(
             systems, edges, center_idx

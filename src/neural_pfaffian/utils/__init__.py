@@ -111,7 +111,7 @@ def ema_make(tree: T) -> EMAState[T]:
     Return:
     - EMA state
     """
-    return EMAState(jtu.tree_map(jnp.zeros_like, tree), jnp.zeros(()))
+    return EMAState(jtu.tree_map(jnp.zeros_like, tree), jnp.zeros((), dtype=jnp.float32))
 
 
 @jit

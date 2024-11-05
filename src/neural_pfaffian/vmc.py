@@ -48,8 +48,8 @@ def clip_local_energies(
             raise ValueError(f'Unknown statistic {stat}')
     if clip_local_energy > 0.0:
         full_e = pgather(e_loc, axis=0, tiled=True)
-        clip_center = stat_fn(full_e, keepdims=True)
-        mad = jnp.mean(jnp.abs(full_e - clip_center), keepdims=True)
+        clip_center = stat_fn(full_e, axis=0, keepdims=True)
+        mad = jnp.mean(jnp.abs(full_e - clip_center), axis=0, keepdims=True)
         max_dev = clip_local_energy * mad
         e_loc = jnp.clip(e_loc, clip_center - max_dev, clip_center + max_dev)
     return e_loc
@@ -59,8 +59,7 @@ def local_energy_diff(
     e_loc: LocalEnergy, clip_local_energy: float, stat: ClipStatistic
 ) -> LocalEnergy:
     e_loc = clip_local_energies(e_loc, clip_local_energy, stat)
-    center = jnp.mean(e_loc, keepdims=True)
-    e_loc -= center
+    e_loc -= pmean(jnp.mean(e_loc, axis=0, keepdims=True))
     return e_loc
 
 

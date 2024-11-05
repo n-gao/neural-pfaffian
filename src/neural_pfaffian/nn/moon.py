@@ -32,10 +32,9 @@ class MoonEmbeddingElecElec(ReparamModule):
     @nn.compact
     def __call__(self, systems: Systems) -> ElecEmbedding:
         r_ij = systems.elec_elec_dists
-        r_ij_scaled = log1p_rescale(r_ij)
         r_ij_same, r_ij_diff = (
-            r_ij_scaled[: systems.n_elec_pair_same],
-            r_ij_scaled[systems.n_elec_pair_same :],
+            r_ij[: systems.n_elec_pair_same],
+            r_ij[systems.n_elec_pair_same :],
         )
 
         # Electron - Electron Embedding
@@ -56,12 +55,14 @@ class MoonEmbeddingElecElec(ReparamModule):
             -1,
         )(systems, r_ij_diff, None)
 
-        e_e_inp = jnp.concatenate([same_ij, diff_ij], axis=0)
+        e_e_filter = jnp.concatenate([same_ij, diff_ij], axis=0)
+        e_e_data = nn.Dense(self.embedding_dim // 2)(log1p_rescale(r_ij))
+        e_e_data = self.activation(e_e_data)
         # Here we merge two segment sums for efficiency
         e_e_i = systems.elec_elec_idx[0]
         # one sum for same spin, one for different
         e_e_i[systems.n_elec_pair_same :] += systems.n_elec
-        e_emb = segment_sum(e_e_inp, e_e_i, 2 * systems.n_elec)
+        e_emb = segment_sum(e_e_filter * e_e_data, e_e_i, 2 * systems.n_elec)
         result = einops.rearrange(e_emb, '(two elec) feat -> elec (two feat)', two=2)
         return result
 
@@ -78,35 +79,43 @@ class MoonEmbedding(ReparamModule):
     def __call__(
         self, systems: Systems
     ) -> Tuple[ElecEmbedding, NucEmbeddings, ElecNucEdge, ElecNormalizer]:
+        # Electron-electron embedding
         elec_emb = MoonEmbeddingElecElec(
             self.embedding_dim, self.edge_hidden_dim, self.edge_rbf, self.activation
         )(systems)
+
+        # Normalize by number of neighbors
         elec_nuc_dists = systems.elec_nuc_dists
+        nuc_idx = systems.elec_nuc_idx[1]
+        e_env = NormEnvelope()(systems, elec_nuc_dists)
         e_normalizer = segment_sum(
-            NormEnvelope(None)(systems, elec_nuc_dists, systems.elec_nuc_idx[1]),
+            e_env * systems.flat_charges[nuc_idx],
             systems.elec_nuc_idx[0],
             systems.n_elec,
         )
         e_normalizer += 1
         elec_emb /= e_normalizer[..., None]
 
+        # Electron - nucleus embedding
         kernel = self.reparam(
             'kernel',
             jax.nn.initializers.normal(1 / 2, dtype=jnp.float32),
             (systems.n_nuc, 4, self.embedding_dim),
             param_type=ParamTypes.NUCLEI,
-        )[0][systems.elec_nuc_idx[1]]
+            keep_distr=True,
+        )[0][nuc_idx]
         bias = self.reparam(
             'bias',
             jax.nn.initializers.normal(1.0, dtype=jnp.float32),
             (systems.n_nuc, self.embedding_dim),
             param_type=ParamTypes.NUCLEI,
-        )[0][systems.elec_nuc_idx[1]]
+        )[0][nuc_idx]
         elec_nuc_emb = log1p_rescale(elec_nuc_dists)
         elec_nuc_emb = jnp.einsum('...d,...dk->...k', elec_nuc_emb, kernel) + bias
         elec_nuc_emb += elec_emb[systems.elec_nuc_idx[0]]
         elec_nuc_emb = self.activation(elec_nuc_emb)
 
+        # Electron - nuclei filter
         elec_nuc_edge = EdgeEmbedding(
             self.edge_embedding,
             self.edge_hidden_dim,
@@ -114,13 +123,14 @@ class MoonEmbedding(ReparamModule):
             self.activation,
             ExponentialRbf,
             None,
-        )(systems, elec_nuc_dists, systems.elec_nuc_idx[1])
+        )(systems, elec_nuc_dists, nuc_idx)
         elec_nuc_scale = nn.Dense(2 * self.embedding_dim, use_bias=False)(elec_nuc_edge)
         elec_nuc_scale = einops.rearrange(
             elec_nuc_scale, 'edges (two feat) -> two edges feat', two=2
         )
         elec_nuc_emb = elec_nuc_emb * elec_nuc_scale
 
+        # Aggregate to electron and nucleus embeddings
         # We merge a three segment sum for efficiency
         mask = systems.spin_mask[systems.elec_elec_idx[0]]
         e_n_i, e_n_m, _ = systems.elec_nuc_idx
@@ -138,9 +148,11 @@ class MoonEmbedding(ReparamModule):
         )
         # Normalize by neighbor count
         elec_emb /= e_normalizer[..., None]
+
         n_neigh = segment_sum(
-            NormEnvelope(None)(systems, elec_nuc_dists, systems.elec_nuc_idx[1]),
-            systems.elec_nuc_idx[1],
+            NormEnvelope()(systems, systems.nuc_nuc_dists)
+            * systems.flat_charges[systems.nuc_nuc_idx[1]],
+            systems.nuc_nuc_idx[0],
             systems.n_nuc,
         )[..., None]
         nuc_emb = jtu.tree_map(lambda x: x / (n_neigh + 1), nuc_emb)

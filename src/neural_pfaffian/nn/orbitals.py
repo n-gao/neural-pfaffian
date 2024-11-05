@@ -30,8 +30,14 @@ def _hf_to_full(hf_up: Array, hf_down: Array):
     n_up, n_down = hf_up.shape[-2], hf_down.shape[-2]
     return jnp.concatenate(
         [
-            jnp.concatenate([hf_up, jnp.zeros((*hf_up.shape[:-1], n_down))], axis=-1),
-            jnp.concatenate([jnp.zeros((*hf_down.shape[:-1], n_up)), hf_down], axis=-1),
+            jnp.concatenate(
+                [hf_up, jnp.zeros((*hf_up.shape[:-1], n_down), dtype=hf_up.dtype)],
+                axis=-1,
+            ),
+            jnp.concatenate(
+                [jnp.zeros((*hf_down.shape[:-1], n_up), dtype=hf_down.dtype), hf_down],
+                axis=-1,
+            ),
         ],
         axis=-2,
     )
@@ -56,6 +62,7 @@ class PerNucOrbitals(ReparamModule):
             ),
             param_type=ParamTypes.NUCLEI,
             chunk_axis=-1,
+            keep_distr=True,
         )
         # Set envelopes output correctly
         env = self.envelope(systems)
@@ -107,10 +114,11 @@ class Pfaffian(
 
     @nn.compact
     def __call__(self, systems: Systems, elec_embeddings: Float[Array, 'electrons dim']):
+        n_det = self.determinants
         A, A_meta = self.reparam(
             'antisymmetrizer',
             jax.nn.initializers.normal(1, dtype=jnp.float32),
-            (systems.n_nn, self.orb_per_nuc, self.orb_per_nuc, self.determinants),
+            (systems.n_nn, self.orb_per_nuc, self.orb_per_nuc, n_det),
             param_type=ParamTypes.NUCLEI_NUCLEI,
             bias=False,
             chunk_axis=-1,
@@ -121,15 +129,15 @@ class Pfaffian(
         )
 
         same_orbs = PerNucOrbitals(
-            self.determinants, self.orb_per_nuc, env.clone(pi_init=1.0)
+            n_det, self.orb_per_nuc, env.clone(pi_init=1.0, keep_distr=False)
         )(systems, elec_embeddings)
         # init diff orbs with 0
         diff_orbs = PerNucOrbitals(
-            self.determinants, self.orb_per_nuc, env.clone(pi_init=0.0)
+            n_det, self.orb_per_nuc, env.clone(pi_init=0.0, keep_distr=True)
         )(systems, elec_embeddings)
         # If n_elec is odd, we need an extra orbital
         fill_orbs = PerNucOrbitals(
-            self.determinants, 1, env.clone(out_dim=self.determinants, pi_init=1.0)
+            n_det, 1, env.clone(out_dim=n_det, pi_init=1.0, keep_distr=False)
         )(systems, elec_embeddings)
 
         result = []
@@ -214,6 +222,7 @@ class Pfaffian(
             pf_orbs: PfaffianOrbitals,
             state: EMAState[PfaffianPretrainingState],
         ):
+            dtype = hf_up.dtype
             leading_dims = hf_up.shape[:-2]
             n_up, n_down = hf_up.shape[-2], hf_down.shape[-2]
             n_orbs = pf_orbs.orbitals.shape[-1] // 2
@@ -222,7 +231,8 @@ class Pfaffian(
             # W.l.o.g., we assume n_up >= n_down
             if (n_up + n_down) % 2 == 1:
                 eye = jnp.broadcast_to(
-                    jnp.eye(n_down + 1), (*leading_dims, n_down + 1, n_down + 1)
+                    jnp.eye(n_down + 1, dtype=hf_down.dtype),
+                    (*leading_dims, n_down + 1, n_down + 1),
                 )
                 hf_down = eye.at[..., :n_down, :n_down].set(hf_down)
                 n_down += 1
@@ -242,11 +252,11 @@ class Pfaffian(
             # Prepare HF
             # These two are for matching orbitals
             hf_up_pad = jnp.concatenate(
-                [hf_up, jnp.zeros((*hf_up.shape[:-1], n_orbs - n_up))],
+                [hf_up, jnp.zeros((*hf_up.shape[:-1], n_orbs - n_up), dtype=dtype)],
                 axis=-1,
             )[..., : nn_up.shape[-2], :]  # Remove padded electrons!
             hf_down_pad = jnp.concatenate(
-                [hf_down, jnp.zeros((*hf_down.shape[:-1], n_orbs - n_down))],
+                [hf_down, jnp.zeros((*hf_down.shape[:-1], n_orbs - n_down), dtype=dtype)],
                 axis=-1,
             )[..., : nn_down.shape[-2], :]  # Remove padded electrons!
             # This one is for matching pfaffians
@@ -297,7 +307,7 @@ class Pfaffian(
             # Initialize optimizer
             optimizer = optax.contrib.prodigy(self.hf_match_lr)
             # Update the state
-            state = ema_update(state, optim(optimizer, ema_value(state)), 0.99)
+            state = ema_update(state, optim(optimizer, ema_value(state)), 0.999)
             loss_val = loss(ema_value(state), final=True)
             return loss_val, state
 
