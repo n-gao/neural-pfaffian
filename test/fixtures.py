@@ -7,6 +7,7 @@ import pytest
 from neural_pfaffian.mcmc import MetroplisHastings
 from neural_pfaffian.nn.envelopes import EfficientEnvelope, FullEnvelope
 from neural_pfaffian.nn.ferminet import FermiNet
+from neural_pfaffian.nn.jastrow import CuspJastrow, MLPJastrow
 from neural_pfaffian.nn.meta_network import MetaGNN
 from neural_pfaffian.nn.module import ParamMeta, ParamTypes
 from neural_pfaffian.nn.moon import Moon
@@ -144,10 +145,30 @@ def orbital_model(request, envelope):
     return request.getfixturevalue(request.param)
 
 
-# Jastrows
 @pytest.fixture
-def jastrow_models():
+def no_jastrow():
     return []
+
+
+@pytest.fixture
+def mlp_jastrow():
+    return [MLPJastrow([8, 4], jnp.tanh)]
+
+
+@pytest.fixture
+def cusp_jastrow():
+    return [CuspJastrow()]
+
+
+@pytest.fixture
+def double_jastrow(mlp_jastrow, cusp_jastrow):
+    return mlp_jastrow + cusp_jastrow
+
+
+# Jastrows
+@pytest.fixture(params=['no_jastrow', 'mlp_jastrow', 'cusp_jastrow', 'double_jastrow'])
+def jastrow_models(request):
+    return request.getfixturevalue(request.param)
 
 
 # Wave Function
@@ -258,10 +279,10 @@ def generalized_wf_params(generalized_wf: GeneralizedWaveFunction, one_system: S
 
 # Example WF
 @pytest.fixture
-def neural_pfaffian(moon, jastrow_models, efficient_envelope, meta_gnn):
+def neural_pfaffian(moon, double_jastrow, efficient_envelope, meta_gnn):
     pfaffian = Pfaffian(3, 4, efficient_envelope, 10, 0.1, 1.0, 1.0)
     return GeneralizedWaveFunction.create(
-        WaveFunction(moon, pfaffian, jastrow_models), meta_gnn
+        WaveFunction(moon, pfaffian, double_jastrow), meta_gnn
     )
 
 

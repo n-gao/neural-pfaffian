@@ -1,4 +1,4 @@
-from typing import Callable, TypeVar
+from typing import Callable, Sequence, TypeVar
 
 import flax.linen as nn
 import jax
@@ -58,3 +58,15 @@ def block(x: Array, top_right: Array, bottom_left: Array, bottom_right: Array):
             [bottom_left[None], bottom_right[None, None]],
         ]
     )
+
+
+class MLP(nn.Module):
+    dims: Sequence[int]
+    activation: Activation
+
+    @nn.compact
+    def __call__(self, x: jax.Array) -> jax.Array:
+        for dim in self.dims[:-1]:
+            x = self.activation(nn.Dense(dim)(x))
+        x = nn.Dense(self.dims[-1])(x)
+        return x

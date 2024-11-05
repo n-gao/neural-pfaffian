@@ -262,6 +262,10 @@ class Systems(Sequence['Systems'], PyTreeNode):
         return elec_pair_mask(self.spins, diag=diag, drop_diagonal=True)
 
     @property
+    def electron_molecule_mask(self):
+        return np.repeat(np.arange(self.n_mols), self.n_elec_by_mol)
+
+    @property
     def nuclei_molecule_mask(self):
         return np.repeat(np.arange(self.n_mols), self.n_nuc_by_mol)
 
