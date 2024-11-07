@@ -1,92 +1,45 @@
-# Project Template
+# Neural Pfaffians: Solving Many Many-Electron Schrödinger Equations
 
-This template combines three libraries to give you some basic training infrastructure:
+![Title](figures/title.png)
 
-- [seml](https://github.com/TUM-DAML/seml/) to load configuration files and run jobs
+Reference implementation of Neural Pfaffians from <be>
 
+<b>[Neural Pfaffians: Solving Many Many-Electron Schrödinger Equations](https://arxiv.org/abs/2405.14762)</b><br>
+by Nicholas Gao, Stephan Günnemann<br/>
+published as Oral at NeurIPS 2024.
 
-## Installation (Quick Guide)
-We highly recommend using [`uv`](https://docs.astral.sh/uv/) for reproducible project management:
+## Installation
+1. Install [`uv`](https://docs.astral.sh/uv/):
+    ```bash
+    curl -LsSf https://astral.sh/uv/install.sh | sh
+    ```
+2. Create a virtual environment and install dependencies
+    ```sh
+    uv sync
+    source .venv/bin/activate
+    ```
+
+## Running the code
+We encourage the use of `seml` to manage all experiments, but we also supply commands to run the experiments directly.
+With `seml`:
 ```bash
-curl -LsSf https://astral.sh/uv/install.sh | sh
+seml n2_ablation add configs/seml/train_n2.yaml start
 ```
-To setup the right environment and activate it use
-```sh
-uv sync
-source .venv/bin/activate
-```
-*Optionally*: Install pre-commit hooks via
-```sh
-pre-commit install
-```
-When executing commands with `seml` make sure to always first activate your virtual environment or use `uv run seml`. Do not use `uvx seml` as `uvx` will create a temporary virtual environments where your packages are not installed.
-
-## Developement
-
-**Project management**
-
-For project management, we recommend [`uv`](https://docs.astral.sh/uv/). Please read the docs carefully. Here are the most important commands
-* To add a package to your project use: `uv add <package>`, e.g., `uv add jax[cuda12]`.
-* To update your environment: `uv sync`.
-* To run a script without explicitly activating the environment, use `uv run main.py`.
-* Activate your environment: `source .venv/bin/activate`
-
-`uv` will create a lock file that exactly describes your current environment. Make sure to commit it. To recreate this environment, use `uv sync --locked`. This lock file enables the exact reproducibility of your current environment.
-
-**IDE**
-
-We recommend [VS Code](https://code.visualstudio.com) for development. Select the conda environment you created earlier as your default python interpreter. *Optionally*, use static typecheckers and linters like [ruff](https://github.com/astral-sh/ruff).
-
-**Sacred**
-
-`seml` is based on [Sacred](https://sacred.readthedocs.io/en/stable/index.html). Familiarize yourself with the rough concept behind this framework. Importantly, understand how [experiments](https://sacred.readthedocs.io/en/stable/experiment.html) work and how they can be [configured](https://sacred.readthedocs.io/en/stable/experiment.html#configuration) using config overrides and `named configs`.
-
-**MongoDB**
-
-`seml` will log your experiments on our local `MongoDB` server after you set it up according to the [installation guide]((https://github.com/TUM-DAML/seml/)). Familiarize yourself with the core functionality of `seml` experiments from the example configurations.
-
-
-**Pytest**
-
-During development you may want to test several functionalities. We recommend using [`pytest`](https://docs.pytest.org/en/8.0.x/) for this. To run your tests simply call
-```sh
-pytest
-```
-
-
-## Running experiments locally
-
-To start a training locally, call `main.py` with the your settings, for example
-
-```sh
-./main.py with config/data/small.yaml config/model/big.yaml
-```
-
-You can use this for debugging, e.g. in an interactive slurm session or on your own machine.
-
-## Running experiments on the cluster
-
-Use `seml` to run experiments on the cluster. Pick a collection name, e.g. `example_experiment`. Each experiment should be referred to with an configuration file in `experiments/`. Use the `seml.description` field to keep track of your experiments. Add experiments using:
-
+Without `seml`:
 ```bash
-seml {your-collection-name} add config/seml/grid.yaml
+neural_pfaffian with configs/systems/n2.yaml
 ```
 
-Run them on the cluster using:
+## Contact
+Please contact [n.gao@tum.de](mailto:n.gao@tum.de) if you have any questions.
 
-```bash
-seml {your-collection-name} start
+## Cite
+Please cite our paper if you use our method or code in your own works:
 ```
-
-You can monitor the experiment using:
-
-```bash
-seml {your-collection-name} status
+@inproceedings{gao_pfaffian_2024,
+    title = {Neural Pfaffians: Solving Many Many-Electron Schr\"odinger Equations},
+    author = {Gao, Nicholas and G{\"u}nnemann, Stephan},
+    booktitle = {Neural Information Processing Systems (NeurIPS)},
+    year = {2024}
+}
 ```
-
-More advanced usage of seml can be found in the [documentation](https://github.com/TUM-DAML/seml/tree/master/examples).
-
-
-## Analyzing results
-
-You can analyze the results by inspecting output files your code generates or values you log in the MongoDB. For reference, see `notebooks/visualize_results.ipynb`.

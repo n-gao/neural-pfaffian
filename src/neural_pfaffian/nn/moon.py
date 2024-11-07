@@ -11,7 +11,7 @@ from jaxtyping import Array, Float
 from neural_pfaffian.nn.edges import EdgeEmbedding, ExponentialRbf, NormEnvelope
 from neural_pfaffian.nn.module import ParamTypes, ReparamModule
 from neural_pfaffian.nn.ops import segment_sum
-from neural_pfaffian.nn.utils import Activation, log1p_rescale, residual
+from neural_pfaffian.nn.utils import Activation, ActivationOrName, log1p_rescale, residual
 from neural_pfaffian.nn.wave_function import EmbeddingP
 from neural_pfaffian.systems import Systems
 
@@ -27,7 +27,7 @@ class MoonEmbeddingElecElec(ReparamModule):
     embedding_dim: int
     hidden_dim: int
     rbf: int
-    activation: Activation
+    activation: ActivationOrName
 
     @nn.compact
     def __call__(self, systems: Systems) -> ElecEmbedding:
@@ -57,7 +57,7 @@ class MoonEmbeddingElecElec(ReparamModule):
 
         e_e_filter = jnp.concatenate([same_ij, diff_ij], axis=0)
         e_e_data = nn.Dense(self.embedding_dim // 2)(log1p_rescale(r_ij))
-        e_e_data = self.activation(e_e_data)
+        e_e_data = Activation(self.activation)(e_e_data)
         # Here we merge two segment sums for efficiency
         e_e_i = systems.elec_elec_idx[0]
         # one sum for same spin, one for different
@@ -69,7 +69,7 @@ class MoonEmbeddingElecElec(ReparamModule):
 
 class MoonEmbedding(ReparamModule):
     embedding_dim: int
-    activation: Activation
+    activation: ActivationOrName
 
     edge_embedding: int
     edge_hidden_dim: int
@@ -113,7 +113,7 @@ class MoonEmbedding(ReparamModule):
         elec_nuc_emb = log1p_rescale(elec_nuc_dists)
         elec_nuc_emb = jnp.einsum('...d,...dk->...k', elec_nuc_emb, kernel) + bias
         elec_nuc_emb += elec_emb[systems.elec_nuc_idx[0]]
-        elec_nuc_emb = self.activation(elec_nuc_emb)
+        elec_nuc_emb = Activation(self.activation)(elec_nuc_emb)
 
         # Electron - nuclei filter
         elec_nuc_edge = EdgeEmbedding(
@@ -161,10 +161,11 @@ class MoonEmbedding(ReparamModule):
 
 class Update(ReparamModule):
     out_dim: int
-    activation: Activation
+    activation: ActivationOrName
 
     @nn.compact
     def __call__(self, nuc_emb: NucEmbeddings) -> NucEmbeddings:
+        activation = Activation(self.activation)
         n_nuc = nuc_emb[0].shape[0]
         same = nn.Dense(self.out_dim, use_bias=False)
         diff = nn.Dense(self.out_dim, use_bias=False)
@@ -176,14 +177,14 @@ class Update(ReparamModule):
             param_type=ParamTypes.NUCLEI,
         )[0]
         return tuple(
-            residual(a, self.activation((same(a) + diff(b)) / jnp.sqrt(2) + bias))
+            residual(a, activation((same(a) + diff(b)) / jnp.sqrt(2) + bias))
             for a, b in ((up_in, down_in), (down_in, up_in))
         )  # type: ignore
 
 
 class Diffusion(ReparamModule):
     out_dim: int
-    activation: Activation
+    activation: ActivationOrName
 
     @nn.compact
     def __call__(
@@ -194,6 +195,7 @@ class Diffusion(ReparamModule):
         elec_nuc_edge: ElecNucEdge,
         e_normalizer: Array,
     ) -> ElecEmbedding:
+        activation = Activation(self.activation)
         out_emb = nn.Dense(self.out_dim)(elec_emb)
         elec_idx, nuc_idx, _ = systems.elec_nuc_idx
         edge_spin_mask = systems.spin_mask[elec_idx].astype(bool)
@@ -208,8 +210,8 @@ class Diffusion(ReparamModule):
             segment_sum(to_elec, systems.elec_nuc_idx[0], systems.n_elec)
             / e_normalizer[..., None]
         )
-        out_emb = self.activation(out_emb)
-        out_emb = self.activation(nn.Dense(self.out_dim)(out_emb))
+        out_emb = activation(out_emb)
+        out_emb = activation(nn.Dense(self.out_dim)(out_emb))
         return residual(elec_emb, out_emb)
 
 
@@ -222,7 +224,7 @@ class Moon(nn.Module, EmbeddingP):
     edge_hidden_dim: int
     edge_rbf: int
 
-    activation: Activation
+    activation: ActivationOrName
 
     @nn.compact
     def __call__(self, systems: Systems):

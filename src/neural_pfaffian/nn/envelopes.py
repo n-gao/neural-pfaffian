@@ -1,3 +1,5 @@
+from dataclasses import KW_ONLY
+
 import flax.linen as nn
 import jax
 import jax.numpy as jnp
@@ -5,24 +7,22 @@ from jaxtyping import Array
 
 from neural_pfaffian.nn.module import ParamTypes, ReparamModule
 from neural_pfaffian.systems import Systems, chunk_electron_nuclei
+from neural_pfaffian.utils import Modules
 
 
 class Envelope(ReparamModule):
-    out_dim: int
-    pi_init: float
+    _: KW_ONLY
+    # These will all be set by the orbital module
+    out_dim: int = 0
+    pi_init: float = 1
     # If True, multiplies the output dimension by the number of nuclei in the molecule
-    out_per_nuc: bool
-    keep_distr: bool
+    out_per_nuc: bool = False
+    keep_distr: bool = False
 
     def __call__(self, systems: Systems) -> list[Array]: ...
 
 
 class FullEnvelope(Envelope):
-    out_dim: int
-    pi_init: float
-    out_per_nuc: bool
-    keep_distr: bool
-
     @nn.compact
     def __call__(self, systems: Systems):
         param_type = ParamTypes.NUCLEI_NUCLEI if self.out_per_nuc else ParamTypes.NUCLEI
@@ -67,11 +67,6 @@ class FullEnvelope(Envelope):
 
 
 class EfficientEnvelope(Envelope):
-    out_dim: int
-    pi_init: float
-    out_per_nuc: bool
-    keep_distr: bool
-
     env_per_nuc: int
 
     @nn.compact
@@ -115,3 +110,11 @@ class EfficientEnvelope(Envelope):
 
             result.append(_envelopes(pi, sigma, elec_nuc))
         return result
+
+
+ENVELOPES = Modules[Envelope](
+    {
+        envelope.__name__.lower().replace('envelope', ''): envelope
+        for envelope in [FullEnvelope, EfficientEnvelope]
+    }
+)

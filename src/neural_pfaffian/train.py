@@ -35,17 +35,13 @@ def pretrain(
     vmc: VMC,
     state: VMCState,
     systems: Systems,
-    n_epochs: int,
+    optimizer: optax.GradientTransformation,
+    reparam_loss_scale: float,
+    epochs: int,
     batch_size: int,
     basis: str,
 ):
-    optimizer = optax.chain(
-        optax.clip_by_global_norm(1.0),
-        optax.scale_by_adam(),
-        optax.scale_by_trust_ratio(),
-        optax.scale_by_schedule(lambda t: -1e-3 / (1 + 1e-4 * t)),
-    )
-    pretrainer = Pretraining(vmc, optimizer, 1e-6)
+    pretrainer = Pretraining(vmc, optimizer, reparam_loss_scale)
     pre_state = pretrainer.init(state)
 
     # Initialize batches
@@ -55,7 +51,7 @@ def pretrain(
         batches.append(pretrainer.init_systems(subkey, b.with_hf(basis)))
 
     step = 0
-    for epoch in tqdm.trange(n_epochs):
+    for epoch in tqdm.trange(epochs):
         for i in range(len(batches)):
             key, subkey = jax.random.split(key)
             # Update step
@@ -64,7 +60,8 @@ def pretrain(
             )
             # Logging
             log_data = jax.tree.map(lambda x: x.item(), log_data)
-            wandb.log({**log_data, 'pretrain_step': step})
+            log_data['step'] = step
+            wandb.log({f'pretrain/{k}': v for k, v in log_data.items()})
             step += 1
     return pre_state.vmc_state, Systems.merge(batches).to_systems
 
@@ -74,23 +71,27 @@ def train(
     vmc: VMC,
     state: VMCState,
     systems: Systems,
-    n_epochs: int,
+    epochs: int,
     batch_size: int,
 ):
-    batches = list(map(Systems.merge, batch(systems, batch_size)))
+    # Init systems
+    key, subkey = jax.random.split(key)
+    systems = vmc.init_systems(subkey, systems)
     # Initialize batches
+    batches = list(map(Systems.merge, batch(systems, batch_size)))
     key, subkey = jax.random.split(key)
     batch_keys = jax.random.split(subkey, len(batches))
     batches = list(map(vmc.init_systems, batch_keys, batches))
 
     step = 0
-    for epoch in tqdm.trange(n_epochs):
+    for epoch in tqdm.trange(epochs):
         for i in range(len(batches)):
             key, subkey = jax.random.split(key)
             # Update step
             state, batches[i], log_data = vmc.step(subkey, state, batches[i])
             # Logging
             log_data = jax.tree.map(lambda x: x.item(), log_data)
-            wandb.log({**log_data, 'train_step': step})
+            log_data['step'] = step
+            wandb.log({f'train/{k}': v for k, v in log_data.items()})
             step += 1
     return state, Systems.merge(batches)

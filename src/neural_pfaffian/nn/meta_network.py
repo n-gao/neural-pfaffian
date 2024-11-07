@@ -1,4 +1,5 @@
 import math
+from dataclasses import KW_ONLY
 
 import flax.linen as nn
 import jax
@@ -11,7 +12,7 @@ from jaxtyping import Array, Float, PyTree
 from neural_pfaffian.nn.edges import BesselRbf, EdgeEmbedding, NormEnvelope
 from neural_pfaffian.nn.module import ParamMeta, ParamTypes
 from neural_pfaffian.nn.ops import segment_mean, segment_sum
-from neural_pfaffian.nn.utils import Activation, GatedLinearUnit
+from neural_pfaffian.nn.utils import Activation, ActivationOrName, GatedLinearUnit
 from neural_pfaffian.nn.wave_function import MetaNetworkP
 from neural_pfaffian.systems import Systems
 
@@ -19,7 +20,7 @@ from neural_pfaffian.systems import Systems
 class MessagePassing(nn.Module):
     msg_dim: int
     out_dim: int
-    activation: Activation
+    activation: ActivationOrName
 
     @nn.compact
     def __call__(
@@ -31,23 +32,24 @@ class MessagePassing(nn.Module):
         senders: npt.NDArray[np.int64],
         receivers: npt.NDArray[np.int64],
     ) -> jax.Array:
+        activation = Activation(self.activation)
         inp = (
             nn.Dense(self.msg_dim)(s_embed)[senders]
             + nn.Dense(self.msg_dim)(r_embed)[receivers]
         )
         inp = nn.LayerNorm()(inp)
-        inp = self.activation(inp)
+        inp = activation(inp)
         inp *= nn.Dense(self.msg_dim, use_bias=False)(e_embed)
         msg = (
             jax.ops.segment_sum(inp, receivers, num_segments=r_embed.shape[0])
             * norm[:, None]
         )
-        return self.activation(nn.Dense(self.out_dim, use_bias=False)(msg))
+        return activation(nn.Dense(self.out_dim, use_bias=False)(msg))
 
 
 class Update(nn.Module):
     out_dim: int
-    activation: Activation
+    activation: ActivationOrName
 
     @nn.compact
     def __call__(self, n_embed: jax.Array, msg: jax.Array) -> jax.Array:
@@ -62,7 +64,7 @@ class MessagePassingNetwork(nn.Module):
     message_dim: int
     embedding_dim: int
     num_layers: int
-    activation: Activation
+    activation: ActivationOrName
 
     @nn.compact
     def __call__(
@@ -125,7 +127,7 @@ class OutputBias(nn.Module):
 
 class ParamOut(nn.Module):
     meta: ParamMeta
-    activation: Activation
+    activation: ActivationOrName
     n_charges: int
 
     @nn.compact
@@ -197,7 +199,7 @@ class ParamOut(nn.Module):
 
 class GraphToParameters(nn.Module):
     out_structure: PyTree[ParamMeta]
-    activation: Activation
+    activation: ActivationOrName
     n_charges: int
 
     @nn.compact
@@ -214,7 +216,7 @@ class GraphToParameters(nn.Module):
             nn.Dense(emb_dim)(n_embed)[nn_idx_i]
             + nn.Dense(emb_dim, use_bias=False)(n_embed)[nn_idx_j]
         ) / jnp.sqrt(2)
-        nn_embed = self.activation(nn_embed)
+        nn_embed = Activation(self.activation)(nn_embed)
         g_embed = segment_mean(n_embed, systems.nuclei_molecule_mask, systems.n_mols)
 
         # Update
@@ -242,21 +244,24 @@ class GraphToParameters(nn.Module):
 
 
 class MetaGNN(nn.Module, MetaNetworkP):
-    out_structure: PyTree[ParamMeta]
     # Message passing
     message_dim: int
     embedding_dim: int
     num_layers: int
-    activation: Activation
+    activation: ActivationOrName
 
     # Edge embedding
     n_rbf: int
 
+    _: KW_ONLY  # Will be set later
+    # Output structure
+    out_structure: PyTree[ParamMeta] | None = None
     # Set of charges that are needed
-    charges: tuple[int, ...]
+    charges: tuple[int, ...] | None = None
 
     @nn.compact
     def __call__(self, systems: Systems) -> PyTree[Array]:
+        assert self.charges is not None, 'Charges must be set'
         n_charges = len(self.charges)
         # We replace the charges in systems with "Pseudo" charges that are compact
         charge_to_idx = {charge: idx for idx, charge in enumerate(self.charges)}

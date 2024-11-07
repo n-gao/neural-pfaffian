@@ -10,7 +10,7 @@ from jaxtyping import Array, Float
 
 from neural_pfaffian.nn.module import ParamTypes, ReparamModule
 from neural_pfaffian.nn.ops import segment_mean, segment_sum
-from neural_pfaffian.nn.utils import Activation, log1p_rescale, residual
+from neural_pfaffian.nn.utils import Activation, ActivationOrName, log1p_rescale, residual
 from neural_pfaffian.nn.wave_function import EmbeddingP
 from neural_pfaffian.systems import Systems
 
@@ -48,7 +48,7 @@ def aggregate_features(
 class FermiLayer(nn.Module):
     single_out: int
     pair_out: int
-    activation: Activation
+    activation: ActivationOrName
 
     @nn.compact
     def __call__(
@@ -57,6 +57,7 @@ class FermiLayer(nn.Module):
         h_one: SingleStream,
         h_two: PairStream,
     ) -> tuple[SingleStream, PairStream]:
+        activation = Activation(self.activation)
         spins = np.array(systems.spins)
 
         # Single update
@@ -65,7 +66,7 @@ class FermiLayer(nn.Module):
         global_new = nn.Dense(self.single_out, use_bias=False)(global_in)
         global_new = jnp.repeat(global_new, np.reshape(spins, -1), axis=0)
         h_one_new += global_new
-        h_one_new = self.activation(h_one_new / jnp.sqrt(2))
+        h_one_new = activation(h_one_new / jnp.sqrt(2))
         h_one = residual(h_one, h_one_new)
 
         # Pairwise update
@@ -77,7 +78,7 @@ class FermiLayer(nn.Module):
             if h_two_new[0].shape != h_two[0].shape:
                 h_two = jtu.tree_map(jnp.tanh, h_two_new)
             else:
-                h_two_new = jtu.tree_map(self.activation, h_two_new)
+                h_two_new = jtu.tree_map(activation, h_two_new)
                 h_two = jtu.tree_map(residual, h_two, h_two_new)
         return h_one, h_two
 
@@ -115,7 +116,7 @@ class FermiNetFeatures(ReparamModule):
 class FermiNet(nn.Module, EmbeddingP):
     embedding_dim: int
     hidden_dims: Sequence[tuple[int, int]]
-    activation: Activation
+    activation: ActivationOrName
 
     @nn.compact
     def __call__(self, systems: Systems):

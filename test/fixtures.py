@@ -4,6 +4,7 @@ import jax.numpy as jnp
 import optax
 import pytest
 
+from neural_pfaffian.clipping import MedianClipping
 from neural_pfaffian.mcmc import MetroplisHastings
 from neural_pfaffian.nn.envelopes import EfficientEnvelope, FullEnvelope
 from neural_pfaffian.nn.ferminet import FermiNet
@@ -17,7 +18,7 @@ from neural_pfaffian.nn.wave_function import GeneralizedWaveFunction, WaveFuncti
 from neural_pfaffian.preconditioner import Identity, Preconditioner, Spring
 from neural_pfaffian.pretraining import Pretraining
 from neural_pfaffian.systems import Systems
-from neural_pfaffian.vmc import VMC, ClipStatistic
+from neural_pfaffian.vmc import VMC
 
 
 # Systems
@@ -120,12 +121,12 @@ def embedding_fwdpass(embedding_model: nn.Module):
 # Enveloeps
 @pytest.fixture
 def full_envelope():
-    return FullEnvelope(1, 1, True, False)
+    return FullEnvelope()
 
 
 @pytest.fixture(scope='function')
 def efficient_envelope():
-    return EfficientEnvelope(1, 1, True, False, 8)
+    return EfficientEnvelope(8)
 
 
 @pytest.fixture(params=['full_envelope', 'efficient_envelope'])
@@ -268,8 +269,8 @@ def out_meta(request):
 
 # Generalized Wave fucntion
 @pytest.fixture
-def generalized_wf(wave_function, meta_gnn):
-    return GeneralizedWaveFunction.create(wave_function, meta_gnn)
+def generalized_wf(wave_function, meta_gnn, one_system):
+    return GeneralizedWaveFunction.create(wave_function, meta_gnn, one_system)
 
 
 @pytest.fixture
@@ -279,10 +280,10 @@ def generalized_wf_params(generalized_wf: GeneralizedWaveFunction, one_system: S
 
 # Example WF
 @pytest.fixture
-def neural_pfaffian(moon, double_jastrow, efficient_envelope, meta_gnn):
+def neural_pfaffian(moon, double_jastrow, efficient_envelope, meta_gnn, one_system):
     pfaffian = Pfaffian(3, 4, efficient_envelope, 10, 0.1, 1.0, 1.0)
     return GeneralizedWaveFunction.create(
-        WaveFunction(moon, pfaffian, double_jastrow), meta_gnn
+        WaveFunction(moon, pfaffian, double_jastrow), meta_gnn, one_system
     )
 
 
@@ -323,14 +324,13 @@ def vmc(neural_pfaffian, preconditioner, mcmc, optimizer):
         preconditioner=preconditioner,
         optimizer=optimizer,
         sampler=mcmc,
-        clip_local_energy=5.0,
-        clip_statistic=ClipStatistic.MEDIAN,
+        clipping=MedianClipping(5),
     )
 
 
 @pytest.fixture
-def vmc_state(vmc: VMC):
-    return vmc.init(jax.random.key(0))
+def vmc_state(vmc: VMC, one_system):
+    return vmc.init(jax.random.key(0), one_system)
 
 
 @pytest.fixture
@@ -345,14 +345,13 @@ def fixed_vmc(neural_pfaffian, spring_preconditioner, mcmc, optimizer):
         preconditioner=spring_preconditioner,
         optimizer=optimizer,
         sampler=mcmc,
-        clip_local_energy=5.0,
-        clip_statistic=ClipStatistic.MEDIAN,
+        clipping=MedianClipping(5),
     )
 
 
 @pytest.fixture
-def fixed_vmc_state(fixed_vmc: VMC):
-    return fixed_vmc.init(jax.random.key(0))
+def fixed_vmc_state(fixed_vmc: VMC, one_system):
+    return fixed_vmc.init(jax.random.key(0), one_system)
 
 
 @pytest.fixture

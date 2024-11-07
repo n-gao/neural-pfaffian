@@ -6,7 +6,7 @@ from jaxtyping import Array, Float
 
 from neural_pfaffian.nn.ferminet import FermiNetFeatures
 from neural_pfaffian.nn.ops import segment_softmax
-from neural_pfaffian.nn.utils import Activation
+from neural_pfaffian.nn.utils import Activation, ActivationOrName
 from neural_pfaffian.nn.wave_function import EmbeddingP
 from neural_pfaffian.systems import Systems
 
@@ -16,7 +16,7 @@ SingleStream = Float[Array, 'n_elec single_dim']
 class Attention(nn.Module):
     dim: int
     heads: int
-    activation: Activation
+    activation: ActivationOrName
 
     @nn.compact
     def __call__(self, systems: Systems, h_one: SingleStream):
@@ -39,7 +39,7 @@ class Attention(nn.Module):
         h_one += attn
         h_one = nn.LayerNorm()(h_one)
 
-        mlp_out = self.activation(nn.Dense(self.dim)(h_one))
+        mlp_out = Activation(self.activation)(nn.Dense(self.dim)(h_one))
 
         h_one += mlp_out
         h_one = nn.LayerNorm()(h_one)
@@ -51,7 +51,7 @@ class PsiFormer(nn.Module, EmbeddingP):
     dim: int
     n_head: int
     n_layer: int
-    activation: Activation
+    activation: ActivationOrName
 
     @nn.compact
     def __call__(self, systems: Systems):

@@ -22,7 +22,14 @@ from neural_pfaffian.nn.module import ParamTypes, ReparamModule
 from neural_pfaffian.nn.utils import block
 from neural_pfaffian.nn.wave_function import OrbitalsP
 from neural_pfaffian.systems import Systems, SystemsWithHF, chunk_electron
-from neural_pfaffian.utils import EMAState, ema_make, ema_update, ema_value, itemgetter
+from neural_pfaffian.utils import (
+    EMAState,
+    Modules,
+    ema_make,
+    ema_update,
+    ema_value,
+    itemgetter,
+)
 from neural_pfaffian.utils.jax_utils import pmean_if_pmap
 
 
@@ -351,3 +358,6 @@ class Pfaffian(
             )
             states.append(state)
         return systems.replace(cache=tuple(states))
+
+
+ORBITALS = Modules[OrbitalsP]({cls.__name__.lower(): cls for cls in [Pfaffian]})

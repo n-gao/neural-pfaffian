@@ -12,6 +12,7 @@ from neural_pfaffian.nn.wave_function import (
     WaveFunctionParameters,
 )
 from neural_pfaffian.systems import Systems
+from neural_pfaffian.utils import Modules
 from neural_pfaffian.utils.jax_utils import (
     pall_to_all,
     pgather,
@@ -174,3 +175,8 @@ class Spring(PyTreeNode, Preconditioner[SpringState]):
         # Convert back to the original dtype
         update = jtu.tree_map(jax.lax.convert_element_type, natgrad, out_dtypes)
         return update, state.replace(last_grad=natgrad), {}
+
+
+PRECONDITIONER = Modules[Preconditioner](
+    {cls.__name__.lower(): cls for cls in [Identity, Spring]}
+)

@@ -8,7 +8,7 @@ import numpy.typing as npt
 from jaxtyping import Array, Float
 
 from neural_pfaffian.nn.module import ReparamModule
-from neural_pfaffian.nn.utils import Activation
+from neural_pfaffian.nn.utils import Activation, ActivationOrName
 from neural_pfaffian.systems import Systems
 
 
@@ -81,7 +81,7 @@ class EdgeEmbedding(ReparamModule):
     out_dim: int
     hidden_dim: int
     n_rbf: int
-    activation: Activation
+    activation: ActivationOrName
     rbf: Type[Rbf]
     # If set, we use charge embeddings instead of .reparam
     # If set to -1, we use the same embedding for all nuclei
@@ -114,7 +114,7 @@ class EdgeEmbedding(ReparamModule):
         )
 
         hidden = jnp.einsum('...d,...dk->...k', edges, kernel) + bias
-        hidden = self.activation(hidden)
+        hidden = Activation(self.activation)(hidden)
         env = self.rbf(self.n_rbf, self.max_charge, self.sigma_init)(
             systems, edges, center_idx
         )

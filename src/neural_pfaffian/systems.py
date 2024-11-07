@@ -11,6 +11,7 @@ from typing import (
     override,
 )
 
+import jax
 import jax.numpy as jnp
 import jax.tree_util as jtu
 import numpy as np
@@ -67,6 +68,26 @@ def chunk_electron_electron(s: Spins, c: Charges) -> int:
 T = TypeVar('T')
 Ts = TypeVarTuple('Ts')
 S = TypeVar('S', bound='Systems')
+
+
+def init_electrons(
+    key: jax.Array,
+    nuclei: Nuclei,
+    charges: Charges,
+    spins: Spins,
+    batch_size: int,
+) -> Electrons:
+    # TODO: Improve electron initialization
+    key, subkey = jax.random.split(key)
+    electrons = jax.random.normal(subkey, (batch_size, sum(spins), 3))
+    nuc_idx = jax.random.choice(
+        subkey,
+        len(charges),
+        (batch_size, sum(spins)),
+        p=jnp.array(charges) / sum(charges),
+    )
+    electrons += nuclei[nuc_idx]
+    return electrons
 
 
 @functools.total_ordering
@@ -377,6 +398,43 @@ class Systems(Sequence['Systems'], PyTreeNode):
         flat_systems = [s for sys in systems for s in sys.sub_configs]
         flat_systems = sorted(flat_systems)
         return sum(flat_systems[1:], flat_systems[0])
+
+    @classmethod
+    def from_pyscf(cls, mol: pyscf.gto.Mole) -> Self:
+        nuclei = jnp.array(mol.atom_coords())
+        charges = tuple(mol.atom_charges())
+        spins = mol.nelec
+        return cls.create(spins, charges, nuclei)
+
+    @classmethod
+    def create(
+        cls,
+        spins: Spins,
+        charges: Charges,
+        nuclei: Nuclei,
+    ) -> Self:
+        n_elec = np.sum(spins)
+        electrons = jnp.zeros((n_elec, 3), dtype=jnp.float32)
+        return cls((spins,), (charges,), electrons, nuclei, {})
+
+    @property
+    def example_input(self):
+        # A dummy input without any batch dimensions
+        return Systems(
+            self.spins,
+            self.charges,
+            jnp.zeros((self.n_elec, 3), dtype=self.electrons.dtype),
+            self.nuclei,
+            self.mol_data,
+        )
+
+    def init_electrons(self, key: jax.Array, batch_size: int) -> Self:
+        electrons = []
+        for s in self:
+            electrons.append(
+                init_electrons(key, s.nuclei, s.charges[0], s.spins[0], batch_size)
+            )
+        return self.replace(electrons=jnp.concatenate(electrons, axis=-2))
 
 
 class SystemsWithHF(Systems):

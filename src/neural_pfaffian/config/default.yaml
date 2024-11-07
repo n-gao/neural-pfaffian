@@ -1,0 +1,125 @@
+#########################################################################################
+# Wave function
+#########################################################################################
+wave_function:
+  embedding:
+    module: moon # ['moon', 'psiformer', 'ferminet']
+    args:
+      moon:
+        dim: 256
+        n_layer: 4
+        embedding_dim: 256
+        edge_embedding: 32
+        edge_hidden_dim: 8
+        edge_rbf: 6
+        activation: silu
+      psiformer:
+        dim: 256
+        embedding_dim: 256
+        n_head: 4
+        n_layer: 4
+        activation: silu
+      ferminet:
+        embedding_dim: 256
+        hidden_dims:
+          - [256, 32]
+          - [256, 32]
+          - [256, 32]
+          - [256, 32]
+        activation: silu
+
+  envelope:
+    module: efficient # ['efficient', 'full']
+    args:
+      efficient:
+        env_per_nuc: 8
+      full:
+
+  orbitals:
+    module: pfaffian # ['pfaffian']
+    args:
+      pfaffian:
+        determinants: 16
+        orb_per_nuc: 8
+        hf_match_steps: 10
+        hf_match_lr: 1
+        hf_match_orbitals: 1
+        hf_match_pfaffian: 1.e-4
+
+  jastrows: # ['mlp', 'cusp']
+    - - mlp
+      - hidden_dims: [128, 32]
+        activation: silu
+    - - cusp
+      - {}
+
+  meta_gnn:
+    message_dim: 32
+    embedding_dim: 64
+    num_layers: 4
+    activation: silu
+    n_rbf: 8
+
+#########################################################################################
+# VMC
+#########################################################################################
+vmc:
+  epochs: 100_000
+  batch_size: 128 # by default full batch
+
+  thermalizing_epochs: 100
+
+  mcmc:
+    steps: 20
+    init_width: 0.1
+    window_size: 20
+    target_pmove: 0.525
+    error: 0.025
+
+  preconditioner:
+    module: spring
+    args:
+      spring:
+        damping: 1.e-3
+        decay_factor: 0.99
+        dtype: float64
+      identity: {}
+
+  optimizer:
+    transformations:
+      - [clip_by_global_norm, [1], {}]
+    learning_rate: 0.01
+    delay: 100
+
+  clipping:
+    module: median # ['none', 'mean', 'median']
+    args:
+      none: {}
+      mean:
+        max_deviation: 5
+      median:
+        max_deviation: 5
+
+#########################################################################################
+# Pretraining
+#########################################################################################
+pretraining:
+  epochs: 1000
+  batch_size: 128 # by default full batch
+  basis: sto-6g
+
+  optimizer:
+    transformations:
+      - [clip_by_global_norm, [1], {}]
+      - [scale_by_adam, [], {}]
+      - [scale_by_trust_ratio, [], {}]
+    learning_rate: 1.e-3
+    delay: 1000
+
+  reparam_loss_scale: 1.e-6
+
+#########################################################################################
+# Logging
+#########################################################################################
+logging:
+  wandb: {}

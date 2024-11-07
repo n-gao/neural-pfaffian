@@ -1,8 +1,8 @@
 from typing import Generic, Protocol, Self, Sequence, TypeVar
 
 import jax
-import jax.numpy as jnp
 import jax.tree_util as jtu
+import numpy as np
 from flax.core import unfreeze
 from flax.struct import PyTreeNode, field
 from jaxtyping import Array, Float, PyTree
@@ -37,10 +37,11 @@ S = TypeVar('S')
 
 
 class MetaNetworkP(Protocol):
-    def __init__(self, out_structure: PyTree[ParamMeta]): ...
+    charges: Sequence[int] | None
+
     def init(self, key: Array, systems: Systems) -> Parameters: ...
     def apply(self, params: Parameters, systems: Systems) -> PyTree[Array]: ...
-    def clone(self, out_structure: PyTree[ParamMeta]) -> Self: ...
+    def clone(self, out_structure: PyTree[ParamMeta], charges: Sequence[int]) -> Self: ...
 
 
 class EmbeddingP(Protocol):
@@ -133,22 +134,19 @@ class GeneralizedWaveFunction(Generic[Orb, S], PyTreeNode):
         cls,
         wave_function: WaveFunction,
         meta_network: MetaNetworkP | None,
+        systems: Systems,
     ):
         # We need to initialize a dummy system to obtain the meta information about
         # the reparametrized parameters.
-        system = Systems(
-            spins=((1, 1),),
-            charges=((2,),),
-            electrons=jnp.zeros((2, 3)),
-            nuclei=jnp.zeros((1, 3)),
-            mol_data={},
-        )
         key = jax.random.key(0)
-        params = wave_function.init(key, system)
+        params = wave_function.init(key, systems.example_input)
         reparam_meta = params.get(REPARAM_META_KEY, {})
 
         if meta_network is not None:
-            meta_network = meta_network.clone(out_structure=reparam_meta)
+            charges = meta_network.charges
+            if not charges:
+                charges = tuple(np.unique(systems.flat_charges).astype(int))
+            meta_network = meta_network.clone(out_structure=reparam_meta, charges=charges)
         else:
             meta_network = None
 

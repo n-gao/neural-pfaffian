@@ -5,14 +5,15 @@ import jax
 import jax.numpy as jnp
 
 from neural_pfaffian.nn.module import ReparamModule
-from neural_pfaffian.nn.utils import MLP, Activation
+from neural_pfaffian.nn.utils import MLP, ActivationOrName
 from neural_pfaffian.nn.wave_function import ElecEmbedding, JastrowP
 from neural_pfaffian.systems import Systems
+from neural_pfaffian.utils import Modules
 
 
 class MLPJastrow(ReparamModule, JastrowP):
     hidden_dims: Sequence[int]
-    activation: Activation
+    activation: ActivationOrName
 
     @nn.compact
     def __call__(self, systems: Systems, elec_embeddings: ElecEmbedding):
@@ -48,3 +49,11 @@ class CuspJastrow(ReparamModule, JastrowP):
             -(1 / 2) * a_anti**2 / (a_anti + dists_diff), seg_diff, systems.n_mols
         )
         return jnp.zeros_like(result), result
+
+
+JASTROWS = Modules[JastrowP](
+    {
+        cls.__name__.lower().replace('jastrow', ''): cls
+        for cls in [MLPJastrow, CuspJastrow]
+    }
+)

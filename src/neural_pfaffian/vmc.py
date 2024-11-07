@@ -1,4 +1,3 @@
-from enum import Enum
 from typing import Generic, TypeVar
 
 import folx
@@ -8,6 +7,7 @@ import optax
 from flax.struct import PyTreeNode, field
 from jaxtyping import Array, Float, Integer
 
+from neural_pfaffian.clipping import Clipping
 from neural_pfaffian.hamiltonian import KineticEnergyOp, make_local_energy
 from neural_pfaffian.mcmc import MetroplisHastings
 from neural_pfaffian.nn.wave_function import (
@@ -20,7 +20,6 @@ from neural_pfaffian.utils.jax_utils import (
     REPLICATE_SHARD,
     distribute_keys,
     jit,
-    pgather,
     pmean,
     shmap,
 )
@@ -30,35 +29,7 @@ LocalEnergy = Float[Array, 'batch_size n_mols']
 S = TypeVar('S', bound=Systems)
 
 
-class ClipStatistic(Enum):
-    MEDIAN = 'median'
-    MEAN = 'mean'
-
-
-def clip_local_energies(
-    e_loc: LocalEnergy, clip_local_energy: float, stat: ClipStatistic
-) -> LocalEnergy:
-    stat = ClipStatistic(stat)
-    match stat:
-        case ClipStatistic.MEAN:
-            stat_fn = jnp.mean
-        case ClipStatistic.MEDIAN:
-            stat_fn = jnp.median
-        case _:
-            raise ValueError(f'Unknown statistic {stat}')
-    if clip_local_energy > 0.0:
-        full_e = pgather(e_loc, axis=0, tiled=True)
-        clip_center = stat_fn(full_e, axis=0, keepdims=True)
-        mad = jnp.mean(jnp.abs(full_e - clip_center), axis=0, keepdims=True)
-        max_dev = clip_local_energy * mad
-        e_loc = jnp.clip(e_loc, clip_center - max_dev, clip_center + max_dev)
-    return e_loc
-
-
-def local_energy_diff(
-    e_loc: LocalEnergy, clip_local_energy: float, stat: ClipStatistic
-) -> LocalEnergy:
-    e_loc = clip_local_energies(e_loc, clip_local_energy, stat)
+def local_energy_diff(e_loc: LocalEnergy) -> LocalEnergy:
     e_loc -= pmean(jnp.mean(e_loc, axis=0, keepdims=True))
     return e_loc
 
@@ -84,18 +55,10 @@ class VMC(Generic[PS, O, OS], PyTreeNode):
     preconditioner: Preconditioner[PS] = field(pytree_node=False)
     optimizer: optax.GradientTransformation = field(pytree_node=False)
     sampler: MetroplisHastings = field(pytree_node=False)
-    clip_local_energy: float = field(pytree_node=False)
-    clip_statistic: ClipStatistic | str = field(pytree_node=False)
+    clipping: Clipping = field(pytree_node=False)
 
-    def init(self, key: Array):
-        demo_system = Systems(
-            ((2, 1),),
-            ((3,),),
-            jax.random.uniform(key, (3, 3), dtype=jnp.float32),
-            jnp.zeros((1, 3), dtype=jnp.float32),
-            {},
-        )
-        params = self.wave_function.init(key, demo_system)
+    def init(self, key: Array, systems: Systems):
+        params = self.wave_function.init(key, systems.example_input)
         return VMCState(
             params=params,
             optimizer=self.optimizer.init(params),  # type: ignore
@@ -161,9 +124,8 @@ class VMC(Generic[PS, O, OS], PyTreeNode):
 
             # Local energy
             e_l = self.local_energy(state, systems)
-            dE_dlogpsi = local_energy_diff(
-                e_l, self.clip_local_energy, ClipStatistic(self.clip_statistic)
-            )
+            clipped_e_l = self.clipping(e_l)
+            dE_dlogpsi = local_energy_diff(clipped_e_l)
 
             # Preconditioning
             gradient, preconditioner_state, aux_data = self.preconditioner.apply(

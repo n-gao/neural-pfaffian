@@ -1,0 +1,15 @@
+seml:
+  executable: src/neural_pfaffian/main.py
+  output_dir: ~/slurm-output
+  project_root_dir: ../../
+
+slurm:
+  - sbatch_options:
+      gres: gpu:1
+      cpus-per-task: 8
+      partition: gpu_h100
+      qos: interactive
+      time: 0-12:00:00
+
+fixed:
+  +systems: config/systems/n2.yaml

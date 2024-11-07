@@ -1,7 +1,7 @@
 [project]
 name = "neural_pfaffian"
 version = "0.0.1"
-authors = [{ name = "gaoni", email = "my@mail.com" }]
+authors = [{ name = "Nicholas Gao", email = "n.gao@tum.de" }]
 requires-python = ">= 3.11"
 dependencies = [
     "einops>=0.8.0",
@@ -30,6 +30,9 @@ dependencies = [
     "wandb>=0.18.5",
 ]
 license = { text = "MIT" }
+
+[project.scripts]
+neural_pfaffian = "neural_pfaffian.__main__:cli_main"
 
 [build-system]
 requires = ["hatchling"]

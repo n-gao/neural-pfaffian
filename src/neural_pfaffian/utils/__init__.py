@@ -177,3 +177,15 @@ def itemgetter(*items: Any) -> Callable[[Sequence[T]], tuple[T, ...]]:
         return tuple(obj[item] for item in items)
 
     return g
+
+
+T = TypeVar('T')
+
+
+class Modules(dict[str, type[T]], Generic[T]):
+    def init(self, module: str, args: dict[str, dict[str, Any]], **kwargs) -> T:
+        module = module.lower()
+        return self[module](**args[module], **kwargs)
+
+    def init_many(self, modules: Sequence[tuple[str, dict[str, Any]]]) -> tuple[T, ...]:
+        return tuple(self[module.lower()](**args) for module, args in modules)
