@@ -8,15 +8,18 @@ import jax
 import seml
 
 import wandb
+from neural_pfaffian.nn import (
+    ANTISYMMETRIZERS,
+    EMBEDDINGS,
+    ENVELOPES,
+    JASTROWS,
+    GeneralizedWaveFunction,
+    MetaGNN,
+    WaveFunction,
+)
 from neural_pfaffian.clipping import CLIPPINGS
 from neural_pfaffian.dataset import create_systems
 from neural_pfaffian.mcmc import MetroplisHastings
-from neural_pfaffian.nn.embeddings import EMBEDDINGS
-from neural_pfaffian.nn.envelopes import ENVELOPES
-from neural_pfaffian.nn.jastrow import JASTROWS
-from neural_pfaffian.nn.meta_network import MetaGNN
-from neural_pfaffian.nn.orbitals import ORBITALS
-from neural_pfaffian.nn.wave_function import GeneralizedWaveFunction, WaveFunction
 from neural_pfaffian.preconditioner import PRECONDITIONER
 from neural_pfaffian.train import pretrain, thermalize, train
 from neural_pfaffian.utils.optim import make_optimizer
@@ -53,7 +56,7 @@ def main(
     wave_function = GeneralizedWaveFunction.create(
         WaveFunction(
             EMBEDDINGS.init(**wave_function_config['embedding']),
-            ORBITALS.init(
+            ANTISYMMETRIZERS.init(
                 **wave_function_config['orbitals'],
                 envelope=ENVELOPES.init(**wave_function_config['envelope']),
             ),

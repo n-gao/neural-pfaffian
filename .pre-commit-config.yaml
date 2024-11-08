@@ -14,7 +14,8 @@ repos:
     hooks:
       - id: ruff # Run the linter.
         args: [--fix]
-      - id: ruff # Sort improts
-        name: sort imports with ruff
-        args: [--select, I, --fix]
+      # Wandb breaks this
+      # - id: ruff # Sort improts
+      #   name: sort imports with ruff
+      #   args: [--select, I, --fix]
       - id: ruff-format # Run the formatter.

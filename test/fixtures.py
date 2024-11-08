@@ -6,14 +6,12 @@ import pytest
 
 from neural_pfaffian.clipping import MedianClipping
 from neural_pfaffian.mcmc import MetroplisHastings
-from neural_pfaffian.nn.envelopes import EfficientEnvelope, FullEnvelope
-from neural_pfaffian.nn.ferminet import FermiNet
+from neural_pfaffian.nn.embedding import FermiNet, PsiFormer, Moon
+from neural_pfaffian.nn.antisymmetrizer import Pfaffian, Slater
+from neural_pfaffian.nn.envelope import EfficientEnvelope, FullEnvelope
 from neural_pfaffian.nn.jastrow import CuspJastrow, MLPJastrow
 from neural_pfaffian.nn.meta_network import MetaGNN
 from neural_pfaffian.nn.module import ParamMeta, ParamTypes
-from neural_pfaffian.nn.moon import Moon
-from neural_pfaffian.nn.orbitals import Pfaffian, Slater
-from neural_pfaffian.nn.psiformer import PsiFormer
 from neural_pfaffian.nn.wave_function import GeneralizedWaveFunction, WaveFunction
 from neural_pfaffian.preconditioner import Identity, Preconditioner, Spring
 from neural_pfaffian.pretraining import Pretraining

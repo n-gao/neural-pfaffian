@@ -4,11 +4,12 @@ import jax.numpy as jnp
 import jax.tree_util as jtu
 from jaxtyping import Array, Float
 
-from neural_pfaffian.nn.ferminet import FermiNetFeatures
 from neural_pfaffian.nn.ops import segment_softmax
 from neural_pfaffian.nn.utils import Activation, ActivationOrName
 from neural_pfaffian.nn.wave_function import EmbeddingP
 from neural_pfaffian.systems import Systems
+
+from .ferminet import FermiNetFeatures
 
 SingleStream = Float[Array, 'n_elec single_dim']
 

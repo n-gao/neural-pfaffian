@@ -48,7 +48,7 @@ class EmbeddingP(Protocol):
     def __call__(self, systems: Systems) -> ElecEmbedding: ...
 
 
-class OrbitalsP(Protocol[Orb, S]):
+class AntisymmetrizerP(Protocol[Orb, S]):
     def __call__(self, systems: Systems, elec_embeddings: ElecEmbedding) -> Orb: ...
 
     def to_slog_psi(self, systems: Systems, orbitals: Orb) -> SignedLogAmplitude: ...
@@ -83,7 +83,7 @@ class WaveFunctionParameters(PyTreeNode):
 
 class WaveFunction(Generic[Orb, S], ReparamModule):
     embedding_module: EmbeddingP
-    orbital_module: OrbitalsP[Orb, S]
+    orbital_module: AntisymmetrizerP[Orb, S]
     jastrow_modules: Sequence[JastrowP]
 
     def init(self, key: Array, systems: Systems) -> Parameters:

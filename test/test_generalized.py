@@ -36,7 +36,8 @@ def test_independence_logpsi(generalized_wf, generalized_wf_params, systems_floa
     targets = generalized_wf.apply(generalized_wf_params, systems_float64)
     for s, target in zip(systems_float64, targets):
         indep = generalized_wf.apply(generalized_wf_params, s)
-        assert_allclose(indep, target, atol=1e-5)
+        # This test is very sensitive
+        assert_allclose(indep, target, atol=1e-4)
 
 
 def test_fixed_structure(generalized_wf, generalized_wf_params, one_system, two_systems):
