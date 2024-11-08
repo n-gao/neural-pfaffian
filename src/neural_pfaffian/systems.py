@@ -209,6 +209,10 @@ class Systems(Sequence['Systems'], PyTreeNode):
         _, inv_idx = np.unique(np.concatenate(self.unique_indices), return_index=True)
         return inv_idx
 
+    @property
+    def spins_are_identical(self):
+        return all(s == self.spins[0] for s in self.spins)
+
     @overload
     def group(
         self,

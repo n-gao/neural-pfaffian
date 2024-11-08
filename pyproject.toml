@@ -7,10 +7,7 @@ dependencies = [
     "einops>=0.8.0",
     "flax>=0.9.0",
     "folx>=0.2.12",
-    "jax-cuda12-pjrt>0.4.34",
-    "jax-cuda12-plugin[with-cuda]>0.4.34",
-    "jax>0.4.34",
-    "jaxlib>0.4.34",
+    "jax[cuda12]>=0.4.35",
     "jaxtyping>=0.2.34",
     "numpy>=2.1.2",
     "nvidia-cublas-cu12==12.6.0.22",
@@ -25,7 +22,7 @@ dependencies = [
     "nvidia-nvjitlink-cu12==12.6.20",
     "optax>=0.2.3",
     "pyscf>=2.7.0",
-    "seml>=0.5.3",
+    "seml>=0.5.4",
     "tqdm>=4.66.5",
     "wandb>=0.18.5",
 ]
@@ -70,10 +67,6 @@ dev-dependencies = [
     "pytest>=8.3.3",
     "ruff>=0.6.9",
 ]
-find-links = [
-    "https://storage.googleapis.com/jax-releases/jax_nightly_releases.html",
-]
-prerelease = "allow"
 
 [tool.uv.sources]
 optax = { git = "https://github.com/google-deepmind/optax.git" }

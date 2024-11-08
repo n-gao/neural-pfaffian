@@ -12,7 +12,7 @@ from neural_pfaffian.nn.jastrow import CuspJastrow, MLPJastrow
 from neural_pfaffian.nn.meta_network import MetaGNN
 from neural_pfaffian.nn.module import ParamMeta, ParamTypes
 from neural_pfaffian.nn.moon import Moon
-from neural_pfaffian.nn.orbitals import Pfaffian
+from neural_pfaffian.nn.orbitals import Pfaffian, Slater
 from neural_pfaffian.nn.psiformer import PsiFormer
 from neural_pfaffian.nn.wave_function import GeneralizedWaveFunction, WaveFunction
 from neural_pfaffian.preconditioner import Identity, Preconditioner, Spring
@@ -138,6 +138,11 @@ def envelope(request):
 @pytest.fixture
 def pfaffian(envelope):
     return Pfaffian(2, 4, envelope, 10, 0.1, 1.0, 1.0)
+
+
+@pytest.fixture
+def slater(envelope):
+    return Slater(2, envelope)
 
 
 @pytest.fixture(params=['pfaffian'])

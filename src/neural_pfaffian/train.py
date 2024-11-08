@@ -1,3 +1,5 @@
+import time
+
 import jax
 import optax
 import tqdm.auto as tqdm
@@ -51,6 +53,7 @@ def pretrain(
         batches.append(pretrainer.init_systems(subkey, b.with_hf(basis)))
 
     step = 0
+    last_time = time.perf_counter()
     for epoch in tqdm.trange(epochs):
         for i in range(len(batches)):
             key, subkey = jax.random.split(key)
@@ -61,8 +64,10 @@ def pretrain(
             # Logging
             log_data = jax.tree.map(lambda x: x.item(), log_data)
             log_data['step'] = step
+            log_data['time_step'] = time.perf_counter() - last_time
             wandb.log({f'pretrain/{k}': v for k, v in log_data.items()})
             step += 1
+            last_time = time.perf_counter()
     return pre_state.vmc_state, Systems.merge(batches).to_systems
 
 
@@ -84,6 +89,7 @@ def train(
     batches = list(map(vmc.init_systems, batch_keys, batches))
 
     step = 0
+    last_time = time.perf_counter()
     for epoch in tqdm.trange(epochs):
         for i in range(len(batches)):
             key, subkey = jax.random.split(key)
@@ -92,6 +98,8 @@ def train(
             # Logging
             log_data = jax.tree.map(lambda x: x.item(), log_data)
             log_data['step'] = step
+            log_data['time_step'] = time.perf_counter() - last_time
             wandb.log({f'train/{k}': v for k, v in log_data.items()})
             step += 1
+            last_time = time.perf_counter()
     return state, Systems.merge(batches)

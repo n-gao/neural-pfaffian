@@ -40,7 +40,7 @@ class MedianClipping(Clipping, PyTreeNode):
     def __call__(self, local_energies: LocalEnergies) -> LocalEnergies:
         full_e = pgather(local_energies, axis=0, tiled=True)
         center = jnp.median(full_e)
-        dev = pmean(jnp.abs(local_energies - center).mean())
+        dev = jnp.abs(full_e - center).mean()
         max_dev = self.max_deviation * dev
         return jnp.clip(local_energies, center - max_dev, center + max_dev)
 

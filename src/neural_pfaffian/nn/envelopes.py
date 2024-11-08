@@ -6,6 +6,7 @@ import jax.numpy as jnp
 from jaxtyping import Array
 
 from neural_pfaffian.nn.module import ParamTypes, ReparamModule
+from neural_pfaffian.nn.utils import normal_init
 from neural_pfaffian.systems import Systems, chunk_electron_nuclei
 from neural_pfaffian.utils import Modules
 
@@ -29,7 +30,7 @@ class FullEnvelope(Envelope):
         leading_dim = systems.n_nn if self.out_per_nuc else systems.n_nuc
         pi, pi_meta = self.reparam(
             'pi',
-            jax.nn.initializers.constant(self.pi_init, dtype=jnp.float32),
+            normal_init(0.0, self.pi_init),
             (leading_dim, self.out_dim),
             param_type=param_type,
             bias=False,
@@ -37,7 +38,7 @@ class FullEnvelope(Envelope):
         )
         sigma, sigma_meta = self.reparam(
             'sigma',
-            jax.nn.initializers.constant(1, dtype=jnp.float32),
+            normal_init(1.0, 0.1),
             (leading_dim, self.out_dim),
             param_type=param_type,
             bias=True,
@@ -75,7 +76,7 @@ class EfficientEnvelope(Envelope):
         leading_dim = systems.n_nn if self.out_per_nuc else systems.n_nuc
         pi, pi_meta = self.reparam(
             'pi',
-            jax.nn.initializers.constant(self.pi_init, dtype=jnp.float32),
+            normal_init(0.0, self.pi_init),
             (leading_dim, self.out_dim, self.env_per_nuc),
             param_type=param_type,
             bias=False,
@@ -83,7 +84,7 @@ class EfficientEnvelope(Envelope):
         )
         sigma, sigma_meta = self.reparam(
             'sigma',
-            jax.nn.initializers.constant(1, dtype=jnp.float32),
+            normal_init(1.0, 0.1),
             (systems.n_nuc, self.env_per_nuc),
             param_type=ParamTypes.NUCLEI,
             bias=True,

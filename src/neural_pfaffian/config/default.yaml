@@ -33,10 +33,10 @@ wave_function:
     args:
       efficient:
         env_per_nuc: 8
-      full:
+      full: {}
 
   orbitals:
-    module: pfaffian # ['pfaffian']
+    module: pfaffian # ['pfaffian', 'slater']
     args:
       pfaffian:
         determinants: 16
@@ -45,6 +45,8 @@ wave_function:
         hf_match_lr: 1
         hf_match_orbitals: 1
         hf_match_pfaffian: 1.e-4
+      slater:
+        determinants: 16
 
   jastrows: # ['mlp', 'cusp']
     - - mlp
@@ -112,7 +114,12 @@ pretraining:
     transformations:
       - [clip_by_global_norm, [1], {}]
       - [scale_by_adam, [], {}]
-      - [scale_by_trust_ratio, [], {}]
+      - - filter_by_path
+        - [kernel, [[scale_by_trust_ratio, [], {}]]]
+        - {}
+      - - filter_by_path
+        - [embedding, [[scale_by_trust_ratio_embeddings, [], {}]]]
+        - {}
     learning_rate: 1.e-3
     delay: 1000
 

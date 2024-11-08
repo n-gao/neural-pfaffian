@@ -6,8 +6,8 @@ os.environ['JAX_DEFAULT_DTYPE_BITS'] = '32'
 
 import jax
 import seml
-import wandb
 
+import wandb
 from neural_pfaffian.clipping import CLIPPINGS
 from neural_pfaffian.dataset import create_systems
 from neural_pfaffian.mcmc import MetroplisHastings
@@ -104,7 +104,7 @@ def main(
         vmc,
         state,
         systems,
-        n_epochs=vmc_config['thermalization_epochs'],
+        n_epochs=vmc_config['thermalizing_epochs'],
         batch_size=vmc_config['batch_size'],
     )
 

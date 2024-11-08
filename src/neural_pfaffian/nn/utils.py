@@ -82,3 +82,12 @@ class MLP(nn.Module):
             x = activation(nn.Dense(dim)(x))
         x = nn.Dense(self.dims[-1])(x)
         return x
+
+
+def normal_init(mean: Float[ArrayLike, ''], std: Float[ArrayLike, '']):
+    def init(key: jax.Array, shape: Sequence[int], dtype=jnp.float32):
+        return jax.random.normal(key, shape, dtype=dtype) * jnp.array(
+            std, dtype=dtype
+        ) + jnp.array(mean, dtype=dtype)
+
+    return init

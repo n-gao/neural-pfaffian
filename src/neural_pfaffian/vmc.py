@@ -1,3 +1,4 @@
+import functools
 from typing import Generic, TypeVar
 
 import folx
@@ -29,9 +30,9 @@ LocalEnergy = Float[Array, 'batch_size n_mols']
 S = TypeVar('S', bound=Systems)
 
 
+@functools.partial(jax.vmap, in_axes=-1, out_axes=-1)
 def local_energy_diff(e_loc: LocalEnergy) -> LocalEnergy:
-    e_loc -= pmean(jnp.mean(e_loc, axis=0, keepdims=True))
-    return e_loc
+    return e_loc - pmean(jnp.mean(e_loc))
 
 
 O = TypeVar('O')
@@ -79,6 +80,7 @@ class VMC(Generic[PS, O, OS], PyTreeNode):
 
         return init(key, systems)
 
+    @jit
     def local_energy(self, state: VMCState, systems: Systems):
         local_energy_fn = make_local_energy(self.wave_function, KineticEnergyOp.FORWARD)
         local_energy_fn = folx.batched_vmap(
@@ -137,8 +139,9 @@ class VMC(Generic[PS, O, OS], PyTreeNode):
             params = optax.apply_updates(state.params, updates)  # type: ignore
 
             # Logging
-            E = pmean(e_l.mean())
-            E_std = (pmean(e_l.var(0)) ** 0.5).mean()
+            E_per_mol = pmean(e_l.mean(0))
+            E = E_per_mol.mean()
+            E_std = (pmean(((e_l - E_per_mol) ** 2).mean(0)) ** 0.5).mean()
             grad_norm = tree_squared_norm(gradient) ** 0.5
             aux_data = aux_data | dict(E=E, E_std=E_std, grad=grad_norm)
 

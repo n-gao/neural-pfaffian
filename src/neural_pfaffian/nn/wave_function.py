@@ -49,17 +49,15 @@ class EmbeddingP(Protocol):
 
 
 class OrbitalsP(Protocol[Orb, S]):
-    def __call__(self, systems: Systems, elec_embeddings: ElecEmbedding) -> list[Orb]: ...
+    def __call__(self, systems: Systems, elec_embeddings: ElecEmbedding) -> Orb: ...
 
-    def to_slog_psi(
-        self, systems: Systems, orbitals: list[Orb]
-    ) -> SignedLogAmplitude: ...
+    def to_slog_psi(self, systems: Systems, orbitals: Orb) -> SignedLogAmplitude: ...
 
     def match_hf_orbitals(
         self,
         systems: Systems,
         hf_orbitals: Sequence[HFOrbitals],
-        grouped_orbs: Sequence[Orb],
+        orbitals: Orb,
         state: Sequence[S],
     ) -> tuple[Loss, list[S]]: ...
 
@@ -97,7 +95,7 @@ class WaveFunction(Generic[Orb, S], ReparamModule):
     def _embedding(self, systems: Systems) -> ElecEmbedding:
         return self.embedding_module(systems)
 
-    def _orbitals(self, systems: Systems) -> list[Orb]:
+    def _orbitals(self, systems: Systems) -> Orb:
         return self.orbital_module(systems, self.embedding_module(systems))
 
     def _signed(self, systems: Systems) -> SignedLogAmplitude:
