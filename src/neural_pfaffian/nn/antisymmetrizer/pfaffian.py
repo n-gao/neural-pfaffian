@@ -102,6 +102,7 @@ class Pfaffian(
     hf_match_lr: float
     hf_match_orbitals: float
     hf_match_pfaffian: float
+    hf_match_ema: float
 
     @nn.compact
     def __call__(self, systems: Systems, elec_embeddings: Float[Array, 'electrons dim']):
@@ -298,7 +299,9 @@ class Pfaffian(
             # Initialize optimizer
             optimizer = optax.contrib.prodigy(self.hf_match_lr)
             # Update the state
-            state = ema_update(state, optim(optimizer, ema_value(state)), 0.999)
+            state = ema_update(
+                state, optim(optimizer, ema_value(state)), self.hf_match_ema
+            )
             loss_val = loss(ema_value(state), final=True)
             return loss_val, state
 

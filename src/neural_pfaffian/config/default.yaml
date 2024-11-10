@@ -45,6 +45,7 @@ wave_function:
         hf_match_lr: 1
         hf_match_orbitals: 1
         hf_match_pfaffian: 1.e-4
+        hf_match_ema: 0.999
       slater:
         determinants: 16
 

@@ -13,12 +13,18 @@ _src_dir = Path(__file__).parent
 
 
 def atomic(charge: int, **kwargs):
-    return Systems.from_pyscf(pyscf.gto.M(atom=[(charge, (0, 0, 0))], **kwargs))
+    return Systems.from_pyscf(
+        pyscf.gto.M(atom=[(charge, (0, 0, 0))], unit='bohr', **kwargs)
+    )
 
 
 def diatomic(charge1: int, charge2: int, distance: float, **kwargs):
     return Systems.from_pyscf(
-        pyscf.gto.M(atom=[(charge1, (0, 0, 0)), (charge2, (0, 0, distance))], **kwargs)
+        pyscf.gto.M(
+            atom=[(charge1, (0, 0, 0)), (charge2, (0, 0, distance))],
+            unit='bohr',
+            **kwargs,
+        )
     )
 
 

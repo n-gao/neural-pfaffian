@@ -70,23 +70,90 @@ Ts = TypeVarTuple('Ts')
 S = TypeVar('S', bound='Systems')
 
 
+def assign_spins_to_atoms(R: Nuclei, Z: Charges):
+    Z_np = np.array(Z)
+    n_el = np.sum(Z_np)
+
+    # Assign equal nr of up and down spins to all atoms.
+    # If the nuclear charge is odd, we'll redistribute the reamining spins below
+    n_up_per_atom = Z_np // 2
+    n_el_remaining = n_el - 2 * np.sum(n_up_per_atom)
+
+    if n_el_remaining > 0:
+        # Get the indices of the atoms with "open shells"
+        ind_open_shell = np.where(Z_np % 2)[0]
+        R_open = R[ind_open_shell]
+        dist = np.linalg.norm(R_open[:, None, :] - R_open[None, :, :], axis=-1)
+        kernel = np.exp(-dist * 0.5)
+
+        # Loop over all remaining electrons
+        spins = np.zeros(n_el_remaining)
+        n_dn_left = n_el_remaining // 2
+        n_up_left = n_el_remaining - n_dn_left
+        for _ in range(n_el_remaining):
+            is_free = spins == 0
+            spin_per_site = kernel[is_free, :] @ spins
+
+            # Compute the loss loss_i = sum_j kernel_ij * spin_j
+            # and add another spin such that the loss is minimal (ie. as much anti-parallel as possible)
+            ind_atom = np.arange(n_el_remaining)[is_free]
+            loss_up = spin_per_site
+            loss_dn = -spin_per_site
+            if (n_up_left > 0) and (np.min(loss_up) < np.min(loss_dn)):
+                ind = ind_atom[np.argmin(loss_up)]
+                spins[ind] = 1
+                n_up_left -= 1
+            else:
+                ind = ind_atom[np.argmin(loss_dn)]
+                spins[ind] = -1
+                n_dn_left -= 1
+
+        # Add spins to the atoms with open shells
+        n_up_per_atom[ind_open_shell] += spins == 1
+
+    n_dn_per_atom = Z - n_up_per_atom
+    # Collect a list of atom indices: first all up spins, then all down spins
+    ind_atom = []
+    for i, n_up in enumerate(n_up_per_atom):
+        ind_atom += [i] * n_up
+    for i, n_dn in enumerate(n_dn_per_atom):
+        ind_atom += [i] * n_dn
+    return np.array(ind_atom)
+
+
 def init_electrons(
-    key: jax.Array,
-    nuclei: Nuclei,
-    charges: Charges,
-    spins: Spins,
-    batch_size: int,
+    key: jax.Array, nuclei: Nuclei, charges: Charges, spins: Spins, batch_size: int
 ) -> Electrons:
-    # TODO: Improve electron initialization
+    n_el = sum(spins)
     key, subkey = jax.random.split(key)
-    electrons = jax.random.normal(subkey, (batch_size, sum(spins), 3))
-    nuc_idx = jax.random.choice(
-        subkey,
-        len(charges),
-        (batch_size, sum(spins)),
-        p=jnp.array(charges) / sum(charges),
-    )
-    electrons += nuclei[nuc_idx]
+    electrons = jax.random.normal(subkey, (batch_size, n_el, 3), dtype=jnp.float32)
+
+    R = np.array(nuclei, dtype=jnp.float32)
+    n_atoms = len(R)
+    if n_atoms > 1:
+        if n_el == sum(charges):
+            # We can assign spins with the least stress
+            ind_atom = assign_spins_to_atoms(nuclei, charges)
+        else:
+            # We randomly pick atoms based on their charge as probability.
+            key, subkey = jax.random.split(key)
+            ind_atom = np.asarray(
+                jax.random.choice(
+                    subkey,
+                    np.arange(n_atoms),
+                    shape=(batch_size, n_el),
+                    p=np.array(charges) / sum(charges),
+                )
+            )
+        electrons += R[ind_atom]
+    if spins[0] - spins[1] != 0:
+        # We randomly shuffle the electron which gets moved to the majority spin channel
+        up_electrons = electrons[:, : n_el // 2]
+        down_electrons = electrons[:, n_el // 2 :]
+        key, key_up, key_dn = jax.random.split(key, 3)
+        up_electrons = jax.random.permutation(key_up, up_electrons, axis=1)
+        down_electrons = jax.random.permutation(key_dn, down_electrons, axis=1)
+        electrons = jnp.concatenate([up_electrons, down_electrons], axis=1)
     return electrons
 
 
