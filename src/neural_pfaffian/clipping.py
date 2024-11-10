@@ -7,7 +7,7 @@ from flax.struct import PyTreeNode, field
 from jaxtyping import Array, Float
 
 from neural_pfaffian.utils import Modules
-from neural_pfaffian.utils.jax_utils import pgather, pmean
+from neural_pfaffian.utils.jax_utils import pgather_if_pmap, pmean_if_pmap
 
 LocalEnergies = Float[Array, ' batch_size n_mols']
 LocalEnergiesPerMol = Float[Array, ' batch_size n_mols']
@@ -27,8 +27,8 @@ class MeanClipping(Clipping, PyTreeNode):
 
     @functools.partial(jax.vmap, in_axes=-1, out_axes=-1)
     def __call__(self, local_energies: LocalEnergies) -> LocalEnergies:
-        center = pmean(jnp.mean(local_energies))
-        dev = pmean(jnp.abs(local_energies - center).mean())
+        center = pmean_if_pmap(jnp.mean(local_energies))
+        dev = pmean_if_pmap(jnp.abs(local_energies - center).mean())
         max_dev = self.max_deviation * dev
         return jnp.clip(local_energies, center - max_dev, center + max_dev)
 
@@ -38,7 +38,7 @@ class MedianClipping(Clipping, PyTreeNode):
 
     @functools.partial(jax.vmap, in_axes=-1, out_axes=-1)
     def __call__(self, local_energies: LocalEnergies) -> LocalEnergies:
-        full_e = pgather(local_energies, axis=0, tiled=True)
+        full_e = pgather_if_pmap(local_energies, axis=0, tiled=True)
         center = jnp.median(full_e)
         dev = jnp.abs(full_e - center).mean()
         max_dev = self.max_deviation * dev

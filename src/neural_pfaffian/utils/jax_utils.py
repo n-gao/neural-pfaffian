@@ -55,16 +55,19 @@ pall_to_all = functools.partial(jax.lax.all_to_all, axis_name=_BATCH_SHARD)
 pidx = functools.partial(jax.lax.axis_index, axis_name=_BATCH_SHARD)
 
 
-def wrap_if_pmap(p_func: Callable[[T], T]) -> Callable[[T], T]:
+C = TypeVar('C', bound=Callable)
+
+
+def wrap_if_pmap(p_func: C) -> C:
     @functools.wraps(p_func)
-    def p_func_if_pmap(obj: T) -> T:
+    def p_func_if_pmap(obj: T, *args, **kwargs) -> T:
         try:
             core.axis_frame(_BATCH_SHARD)
-            return p_func(obj)
+            return p_func(obj, *args, **kwargs)
         except NameError:
             return obj
 
-    return p_func_if_pmap
+    return p_func_if_pmap  # type: ignore
 
 
 pmean_if_pmap = wrap_if_pmap(pmean)

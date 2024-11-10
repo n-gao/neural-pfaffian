@@ -124,7 +124,7 @@ class Pfaffian(
         )(systems, elec_embeddings)
         # init diff orbs with 0
         diff_orbs = PerNucOrbitals(
-            n_det, self.orb_per_nuc, env.clone(pi_init=0.1, keep_distr=True)
+            n_det, self.orb_per_nuc, env.clone(pi_init=0.01, keep_distr=True)
         )(systems, elec_embeddings)
         # If n_elec is odd, we need an extra orbital
         fill_orbs = PerNucOrbitals(

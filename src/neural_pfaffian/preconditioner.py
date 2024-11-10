@@ -57,9 +57,7 @@ class Identity(PyTreeNode, Preconditioner[None]):
 
         _, vjp = jax.vjp(log_p_closure, params)
         grad = psum_if_pmap(vjp(dE_dlogpsi)[0])
-        precond_grad_norm = jnp.sqrt(
-            pmean(sum([jnp.sum(g**2) for g in jtu.tree_leaves(grad)]))
-        )
+        precond_grad_norm = jnp.sqrt(sum([jnp.sum(g**2) for g in jtu.tree_leaves(grad)]))
         return grad, state, {'opt/precond_grad_norm': precond_grad_norm}
 
 
