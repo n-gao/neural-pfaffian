@@ -12,6 +12,7 @@ from neural_pfaffian.nn.wave_function import (
     WaveFunctionParameters,
 )
 from neural_pfaffian.systems import Systems
+from neural_pfaffian.utils.cg import cg
 from neural_pfaffian.utils import Modules
 from neural_pfaffian.utils.jax_utils import (
     pall_to_all,
@@ -20,7 +21,12 @@ from neural_pfaffian.utils.jax_utils import (
     pmean,
     psum_if_pmap,
 )
-from neural_pfaffian.utils.tree_utils import tree_add, tree_mul, tree_to_dtype
+from neural_pfaffian.utils.tree_utils import (
+    tree_add,
+    tree_mul,
+    tree_squared_norm,
+    tree_to_dtype,
+)
 
 PS = TypeVar('PS')
 
@@ -59,6 +65,87 @@ class Identity(PyTreeNode, Preconditioner[None]):
         grad = psum_if_pmap(vjp(dE_dlogpsi)[0])
         precond_grad_norm = jnp.sqrt(sum([jnp.sum(g**2) for g in jtu.tree_leaves(grad)]))
         return grad, state, {'opt/precond_grad_norm': precond_grad_norm}
+
+
+class CGState(PyTreeNode):
+    last_grad: WaveFunctionParameters
+    damping: Float[Array, '']
+
+
+class CG(PyTreeNode, Preconditioner[CGState]):
+    wave_function: GeneralizedWaveFunction = field(pytree_node=False)
+    damping: Float[ArrayLike, '']
+    decay_factor: Float[ArrayLike, '']
+    maxiter: int
+
+    def init(self, params: WaveFunctionParameters):
+        return SpringState(
+            last_grad=jtu.tree_map(lambda x: jnp.zeros_like(x), params),
+            damping=jnp.asarray(self.damping, dtype=jnp.float32),
+        )
+
+    def apply(
+        self,
+        params: WaveFunctionParameters,
+        systems: Systems,
+        dE_dlogpsi: Float[Array, 'batch_size n_mols'],
+        state: CGState,
+    ):
+        n_dev = jax.device_count()
+        local_batch_size = dE_dlogpsi.size
+        N = local_batch_size * n_dev
+        normalization = 1 / jnp.sqrt(N)
+
+        def log_p_closure(p):
+            return self.wave_function.batched_apply(p, systems) * normalization
+
+        _, vjp_fn = jax.vjp(log_p_closure, params)
+        _, jvp_fn = jax.linearize(log_p_closure, params)
+
+        def center_fn(x):
+            # This centers on a per molecule basis rather than center everything
+            x = x.reshape(dE_dlogpsi.shape)
+            center = pmean(jnp.mean(x, axis=0, keepdims=True))
+            return x - center
+
+        def vjp(x):
+            return psum_if_pmap(vjp_fn(center_fn(x).astype(dE_dlogpsi.dtype))[0])
+
+        def jvp(x):
+            return center_fn(jvp_fn(x))
+
+        grad = psum_if_pmap(vjp(dE_dlogpsi * normalization))
+        last_grad = state.last_grad
+        last_grad = jtu.tree_map(jax.lax.convert_element_type, last_grad, grad)
+        decayed_last_grad = tree_mul(last_grad, self.decay_factor)
+        b = tree_add(grad, tree_mul(decayed_last_grad, state.damping))
+
+        def Fisher_matmul(v):
+            # J^T J v
+            result = vjp(jvp(v))
+            # add damping
+            result = tree_add(result, tree_mul(v, state.damping))
+            return result
+
+        # Compute natural gradient
+        natgrad = cg(
+            A=Fisher_matmul,
+            b=b,
+            x0=last_grad,
+            fixed_iter=n_dev > 1,  # multi gpu
+            maxiter=self.maxiter,
+        )[0]
+
+        aux_data = dict(
+            grad_norm=tree_squared_norm(grad) ** 0.5,
+            natgrad_norm=tree_squared_norm(natgrad) ** 0.5,
+            decayed_last_grad_norm=tree_squared_norm(decayed_last_grad) ** 0.5,
+        )
+        return (
+            natgrad,
+            state.replace(last_grad=natgrad),
+            aux_data,
+        )
 
 
 class SpringState(PyTreeNode):
@@ -176,5 +263,5 @@ class Spring(PyTreeNode, Preconditioner[SpringState]):
 
 
 PRECONDITIONER = Modules[Preconditioner](
-    {cls.__name__.lower(): cls for cls in [Identity, Spring]}
+    {cls.__name__.lower(): cls for cls in [Identity, CG, Spring]}
 )

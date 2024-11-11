@@ -80,18 +80,22 @@ vmc:
     error: 0.025
 
   preconditioner:
-    module: spring
+    module: spring # ['identity', 'cg', 'spring']
     args:
       spring:
         damping: 1.e-3
         decay_factor: 0.99
         dtype: float64
       identity: {}
+      cg:
+        damping: 1.e-3
+        decay_factor: 0.99
+        maxiter: 100
 
   optimizer:
     transformations:
       - [clip_by_global_norm, [1], {}]
-    learning_rate: 0.01
+    learning_rate: 0.1
     delay: 100
 
   clipping:

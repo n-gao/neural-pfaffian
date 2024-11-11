@@ -13,7 +13,7 @@ from neural_pfaffian.nn.jastrow import CuspJastrow, MLPJastrow
 from neural_pfaffian.nn.meta_network import MetaGNN
 from neural_pfaffian.nn.module import ParamMeta, ParamTypes
 from neural_pfaffian.nn.wave_function import GeneralizedWaveFunction, WaveFunction
-from neural_pfaffian.preconditioner import Identity, Preconditioner, Spring
+from neural_pfaffian.preconditioner import CG, Identity, Preconditioner, Spring
 from neural_pfaffian.pretraining import Pretraining
 from neural_pfaffian.systems import Systems
 from neural_pfaffian.vmc import VMC
@@ -135,7 +135,7 @@ def envelope(request):
 # Orbitals
 @pytest.fixture
 def pfaffian(envelope):
-    return Pfaffian(2, 4, envelope, 10, 0.1, 1.0, 1.0)
+    return Pfaffian(2, 4, envelope, 10, 0.1, 1.0, 1.0, 0.99)
 
 
 @pytest.fixture
@@ -284,7 +284,7 @@ def generalized_wf_params(generalized_wf: GeneralizedWaveFunction, one_system: S
 # Example WF
 @pytest.fixture
 def neural_pfaffian(moon, double_jastrow, efficient_envelope, meta_gnn, one_system):
-    pfaffian = Pfaffian(3, 4, efficient_envelope, 10, 0.1, 1.0, 1.0)
+    pfaffian = Pfaffian(3, 4, efficient_envelope, 10, 0.1, 1.0, 1.0, 0.99)
     return GeneralizedWaveFunction.create(
         WaveFunction(moon, pfaffian, double_jastrow), meta_gnn, one_system
     )
@@ -305,7 +305,14 @@ def spring_preconditioner(neural_pfaffian: GeneralizedWaveFunction):
     return Spring(neural_pfaffian, 1e-3, 0.99, jnp.float64)
 
 
-@pytest.fixture(params=['identity_preconditioner', 'spring_preconditioner'])
+@pytest.fixture
+def cg_preconditioner(neural_pfaffian: GeneralizedWaveFunction):
+    return CG(neural_pfaffian, 1e-3, 0.99, 10)
+
+
+@pytest.fixture(
+    params=['identity_preconditioner', 'spring_preconditioner', 'cg_preconditioner']
+)
 def preconditioner(request) -> Preconditioner:
     return request.getfixturevalue(request.param)
 
