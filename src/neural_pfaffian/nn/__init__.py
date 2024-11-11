@@ -3,7 +3,7 @@ from .jastrow import JASTROWS
 from .embedding import EMBEDDINGS
 from .envelope import ENVELOPES
 from .wave_function import GeneralizedWaveFunction, WaveFunction
-from .meta_network import MetaGNN
+from .meta_network import META_NETWORKS
 
 
 __all__ = [
@@ -11,7 +11,7 @@ __all__ = [
     'JASTROWS',
     'EMBEDDINGS',
     'ENVELOPES',
+    'META_NETWORKS',
     'GeneralizedWaveFunction',
     'WaveFunction',
-    'MetaGNN',
 ]

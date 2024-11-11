@@ -183,6 +183,11 @@ T = TypeVar('T')
 
 
 class Modules(dict[str, type[T]], Generic[T]):
+    def init_or_none(self, module: str | None, **kwargs) -> T | None:
+        if module is None:
+            return None
+        return self.init(module, **kwargs)
+
     def init(self, module: str, args: dict[str, dict[str, Any]], **kwargs) -> T:
         module = module.lower()
         return self[module](**args[module], **kwargs)

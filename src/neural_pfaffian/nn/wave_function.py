@@ -147,6 +147,11 @@ class GeneralizedWaveFunction(Generic[Orb, S], PyTreeNode):
             meta_network = meta_network.clone(out_structure=reparam_meta, charges=charges)
         else:
             meta_network = None
+            reparam_meta = jax.tree_map(
+                lambda x: x.replace(keep_distr=False),
+                reparam_meta,
+                is_leaf=lambda x: isinstance(x, ParamMeta),
+            )
 
         return cls(
             wave_function=wave_function,

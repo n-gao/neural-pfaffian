@@ -5,16 +5,19 @@ from pathlib import Path
 os.environ['JAX_DEFAULT_DTYPE_BITS'] = '32'
 
 import jax
+import rich.syntax
 import seml
-
+import yaml
 import wandb
+
+from seml.utils.yaml import YamlDumper
 from neural_pfaffian.nn import (
     ANTISYMMETRIZERS,
     EMBEDDINGS,
     ENVELOPES,
     JASTROWS,
+    META_NETWORKS,
     GeneralizedWaveFunction,
-    MetaGNN,
     WaveFunction,
 )
 from neural_pfaffian.clipping import CLIPPINGS
@@ -44,7 +47,9 @@ def main(
 ):
     # Proper main file
     config = locals()
-    logging.info(f'Running with config:\n{config}')
+    logging.info('Running with config:')
+    cfg_str = yaml.dump(config, indent=2, default_flow_style=None, Dumper=YamlDumper)
+    rich.print(rich.syntax.Syntax(cfg_str.strip(), 'yaml', background_color='default'))
     key = jax.random.key(seed)
 
     logging.info('Creating systems')
@@ -62,7 +67,7 @@ def main(
             ),
             JASTROWS.init_many(wave_function_config['jastrows']),
         ),
-        MetaGNN(**wave_function_config['meta_gnn']),
+        META_NETWORKS.init_or_none(**wave_function_config['meta_network']),
         systems,
     )
 

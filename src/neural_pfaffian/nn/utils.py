@@ -38,11 +38,13 @@ class GatedLinearUnit(nn.Module):
     dim: int
     activation: ActivationOrName
     hidden_dim: int | None = None
+    normalize: bool = True
 
     @nn.compact
     def __call__(self, x: jax.Array) -> jax.Array:
         hidden_dim = self.dim if self.hidden_dim is None else self.hidden_dim
-        x = nn.LayerNorm()(x)
+        if self.normalize:
+            x = nn.LayerNorm()(x)
         return nn.Dense(self.dim, use_bias=False)(
             Activation(self.activation)(nn.Dense(hidden_dim, use_bias=False)(x))
             * nn.Dense(hidden_dim, use_bias=False)(x)

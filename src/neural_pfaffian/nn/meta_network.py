@@ -15,6 +15,7 @@ from neural_pfaffian.nn.ops import segment_mean, segment_sum
 from neural_pfaffian.nn.utils import Activation, ActivationOrName, GatedLinearUnit
 from neural_pfaffian.nn.wave_function import MetaNetworkP
 from neural_pfaffian.systems import Systems
+from neural_pfaffian.utils import Modules
 
 
 class MessagePassing(nn.Module):
@@ -176,7 +177,9 @@ class ParamOut(nn.Module):
             inp = inp[..., None, :] * OutputBias(segment_meta, self.n_charges)(systems)
             inp = jnp.tanh(inp)
         # Compute output
-        result = GatedLinearUnit(seg_out, self.activation, inp.shape[-1])(inp)
+        result = GatedLinearUnit(
+            seg_out, self.activation, inp.shape[-1], normalize=self.meta.bias
+        )(inp)
         # Reshape to output shape
         if chunk_axis is not None:
             # Move the segments into the right dimension
@@ -232,8 +235,10 @@ class GraphToParameters(nn.Module):
         # Scale nn_embed by edge embedding
         nn_embed *= nn.Dense(emb_dim, use_bias=False)(e_embed)
 
-        def predict_param(key, meta: ParamMeta):
-            return ParamOut(meta, self.activation, self.n_charges)(
+        def predict_param(path, meta: ParamMeta):
+            key_path = ''.join(map(str, path))
+            name = f'ParamOut_{meta.param_type.name}_{key_path}'
+            return ParamOut(meta, self.activation, self.n_charges, name=name)(
                 systems, n_embed, nn_embed, g_embed
             )
 
@@ -300,3 +305,6 @@ class MetaGNN(nn.Module, MetaNetworkP):
             self.activation,
             n_charges,
         )(systems, n_embed, e_embed)
+
+
+META_NETWORKS = Modules[MetaNetworkP]({'meta_gnn': MetaGNN})

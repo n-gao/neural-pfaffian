@@ -56,12 +56,15 @@ wave_function:
     - - cusp
       - {}
 
-  meta_gnn:
-    message_dim: 32
-    embedding_dim: 64
-    num_layers: 4
-    activation: silu
-    n_rbf: 8
+  meta_network:
+    module: meta_gnn # ['meta_gnn', null]
+    args:
+      meta_gnn:
+        message_dim: 32
+        embedding_dim: 64
+        num_layers: 3
+        activation: silu
+        n_rbf: 6
 
 #########################################################################################
 # VMC
