@@ -115,7 +115,7 @@ vmc:
 # Pretraining
 #########################################################################################
 pretraining:
-  epochs: 1000
+  epochs: 10000
   batch_size: 128 # by default full batch
   basis: sto-6g
 
