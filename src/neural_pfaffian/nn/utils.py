@@ -3,7 +3,6 @@ from typing import Callable, Sequence, TypeVar
 import flax.linen as nn
 import jax
 import jax.numpy as jnp
-from flax.struct import PyTreeNode, field
 from jaxtyping import Array, ArrayLike, Float
 
 from neural_pfaffian.utils.jax_utils import vectorize
@@ -24,8 +23,8 @@ T = TypeVar('T', bound=Array)
 ActivationOrName = Callable[[T], T]
 
 
-class Activation(PyTreeNode):
-    activation: ActivationOrName = field(pytree_node=False)
+class Activation(nn.Module):
+    activation: ActivationOrName
 
     def __call__(self, x: Float[Array, ' ...']) -> Float[Array, ' ...']:
         if callable(self.activation):

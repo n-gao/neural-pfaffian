@@ -87,10 +87,12 @@ class WaveFunction(Generic[Orb, S], ReparamModule):
     jastrow_modules: Sequence[JastrowP]
 
     def init(self, key: Array, systems: Systems) -> Parameters:
-        return ReparamModule.init(self, key, systems)  # type: ignore
+        return super().init(key, systems)  # type: ignore
 
-    def apply(self, params: Parameters, systems: Systems, method=None) -> LogAmplitude:
-        return ReparamModule.apply(self, params, systems, method=method)  # type: ignore
+    def apply(
+        self, params: Parameters, systems: Systems, method=None, **kwargs
+    ) -> LogAmplitude:
+        return super().apply(params, systems, method=method, **kwargs)  # type: ignore
 
     def _embedding(self, systems: Systems) -> ElecEmbedding:
         return self.embedding_module(systems)

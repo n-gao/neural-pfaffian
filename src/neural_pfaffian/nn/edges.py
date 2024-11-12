@@ -98,7 +98,7 @@ class EdgeEmbedding(ReparamModule):
         bias = self.edge_reparam(
             'bias',
             systems,
-            jax.nn.initializers.normal(2, jnp.float32),
+            jax.nn.initializers.normal(1, jnp.float32),
             (self.hidden_dim,),
             self.max_charge,
             center_idx,
@@ -121,7 +121,7 @@ class EdgeEmbedding(ReparamModule):
         hidden = (hidden[..., None] * env[..., None, :]).reshape(
             *hidden.shape[:-1], self.hidden_dim * self.n_rbf
         )
-        return nn.Dense(self.out_dim, use_bias=False)(hidden)
+        return nn.Dense(self.out_dim, use_bias=False)(hidden) / jnp.sqrt(self.n_rbf)
 
 
 class NormEnvelope(ReparamModule):

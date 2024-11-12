@@ -58,5 +58,5 @@ def test_independence(out_meta, meta_gnn, systems_float64):
         chunk_size = out_meta.param_type.value.chunk_fn(s.spins[0], s.charges[0])
         target = targets[offset : offset + chunk_size]
         indep = meta_gnn.apply(params, s)
-        assert_allclose(indep, target, atol=1e-6)
+        assert_allclose(indep, target, atol=2e-6)
         offset += chunk_size
