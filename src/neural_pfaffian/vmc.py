@@ -1,4 +1,3 @@
-import functools
 from typing import Generic, TypeVar
 
 import folx
@@ -23,6 +22,7 @@ from neural_pfaffian.utils.jax_utils import (
     jit,
     pmean,
     shmap,
+    vmap,
 )
 from neural_pfaffian.utils.tree_utils import tree_squared_norm
 
@@ -30,7 +30,7 @@ LocalEnergy = Float[Array, 'batch_size n_mols']
 S = TypeVar('S', bound=Systems)
 
 
-@functools.partial(jax.vmap, in_axes=-1, out_axes=-1)
+@vmap(in_axes=-1, out_axes=-1)  # vmap over molecules
 def local_energy_diff(e_loc: LocalEnergy) -> LocalEnergy:
     return e_loc - pmean(jnp.mean(e_loc))
 

@@ -88,6 +88,7 @@ def jit(fun: None = None, *jit_args, **jit_kwargs) -> Callable[[C], C]: ...
 def jit(fun: C, *jit_args, **jit_kwargs) -> C: ...
 
 
+@functools.wraps(jax.jit)
 def jit(fun: C | None = None, *jit_args, **jit_kwargs) -> C | Callable[[C], C]:
     def inner_jit(fun: C) -> C:
         jitted = jax.jit(fun, *jit_args, **jit_kwargs)
@@ -137,3 +138,28 @@ def shmap(fun: C | None = None, *shmap_args, **shmap_kwargs) -> C | Callable[[C]
         return inner_shmap
 
     return inner_shmap(fun)
+
+
+@overload
+def vmap(fun: None = None, *vmap_args, **vmap_kwargs) -> Callable[[C], C]: ...
+
+
+@overload
+def vmap(fun: C, *vmap_args, **vmap_kwargs) -> C: ...
+
+
+@functools.wraps(jax.vmap)
+def vmap(fun: C | None = None, *vmap_args, **vmap_kwargs) -> C | Callable[[C], C]:
+    def inner_vmap(fun: C) -> C:
+        vmapped = jax.vmap(fun, *vmap_args, **vmap_kwargs)
+
+        @functools.wraps(fun)
+        def wrapper(*args, **kwargs):
+            return vmapped(*args, **kwargs)
+
+        return wrapper  # type: ignore
+
+    if fun is None:
+        return inner_vmap
+
+    return inner_vmap(fun)

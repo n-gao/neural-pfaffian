@@ -36,7 +36,7 @@ class MessagePassing(nn.Module):
         activation = Activation(self.activation)
         inp = (
             nn.Dense(self.msg_dim)(s_embed)[senders]
-            + nn.Dense(self.msg_dim)(r_embed)[receivers]
+            + nn.Dense(self.msg_dim, use_bias=False)(r_embed)[receivers]
         )
         inp = nn.LayerNorm()(inp)
         inp = activation(inp)
@@ -162,23 +162,21 @@ class ParamOut(nn.Module):
                 inp = g_embed
             case _:
                 raise ValueError(f'Unknown param type {self.meta.param_type}')
+        inp_dim = inp.shape[-1]
 
         # We can't shift if we have no bias. Thus, we scale for segments instead
-        segment_meta = self.meta.replace(
-            shape_and_dtype=jax.ShapeDtypeStruct((segments, inp.shape[-1]), dtype),
-            std=1.0 if segments > 1 else 0.1,
-            bias=True,
-        )
-        if self.meta.bias:
+        if segments > 1:
+            assert self.meta.bias, 'Segments only supported with bias'
             # Shift for different segments
+            segment_meta = self.meta.replace(
+                shape_and_dtype=jax.ShapeDtypeStruct((segments, inp_dim), dtype),
+                std=1.0,
+                bias=True,
+            )
             inp = inp[..., None, :] + OutputBias(segment_meta, self.n_charges)(systems)
-        elif segments > 1:
-            # Scale for different segments
-            inp = inp[..., None, :] * OutputBias(segment_meta, self.n_charges)(systems)
-            inp = jnp.tanh(inp)
         # Compute output
         result = GatedLinearUnit(
-            seg_out, self.activation, inp.shape[-1], normalize=self.meta.bias
+            seg_out, self.activation, inp_dim, normalize=self.meta.bias
         )(inp)
         # Reshape to output shape
         if chunk_axis is not None:

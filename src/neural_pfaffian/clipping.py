@@ -1,13 +1,11 @@
-import functools
 from typing import Protocol
 
-import jax
 import jax.numpy as jnp
 from flax.struct import PyTreeNode, field
 from jaxtyping import Array, Float
 
 from neural_pfaffian.utils import Modules
-from neural_pfaffian.utils.jax_utils import pgather_if_pmap, pmean_if_pmap
+from neural_pfaffian.utils.jax_utils import pgather_if_pmap, pmean_if_pmap, vmap
 
 LocalEnergies = Float[Array, ' batch_size n_mols']
 LocalEnergiesPerMol = Float[Array, ' batch_size n_mols']
@@ -25,7 +23,7 @@ class NoneClipping(Clipping, PyTreeNode):
 class MeanClipping(Clipping, PyTreeNode):
     max_deviation: float = field(pytree_node=False)
 
-    @functools.partial(jax.vmap, in_axes=-1, out_axes=-1)
+    @vmap(in_axes=-1, out_axes=-1)
     def __call__(self, local_energies: LocalEnergies) -> LocalEnergies:
         center = pmean_if_pmap(jnp.mean(local_energies))
         dev = pmean_if_pmap(jnp.abs(local_energies - center).mean())
@@ -36,7 +34,7 @@ class MeanClipping(Clipping, PyTreeNode):
 class MedianClipping(Clipping, PyTreeNode):
     max_deviation: float = field(pytree_node=False)
 
-    @functools.partial(jax.vmap, in_axes=-1, out_axes=-1)
+    @vmap(in_axes=-1, out_axes=-1)
     def __call__(self, local_energies: LocalEnergies) -> LocalEnergies:
         full_e = pgather_if_pmap(local_energies, axis=0, tiled=True)
         center = jnp.median(full_e)

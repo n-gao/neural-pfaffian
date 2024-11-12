@@ -76,7 +76,7 @@ def main(
     preconditioner = PRECONDITIONER.init(
         **vmc_config['preconditioner'], wave_function=wave_function
     )
-    optimizer = make_optimizer(**vmc_config['optimizer'])
+    optimizer = make_optimizer(vmc_config['optimizer'])
     mcmc = MetroplisHastings(wave_function, **vmc_config['mcmc'])
     clipping = CLIPPINGS.init(**vmc_config['clipping'])
     vmc = VMC(wave_function, preconditioner, optimizer, mcmc, clipping)
@@ -97,7 +97,7 @@ def main(
         vmc,
         state,
         systems,
-        make_optimizer(**pretraining_config['optimizer']),
+        make_optimizer(pretraining_config['optimizer']),
         reparam_loss_scale=pretraining_config['reparam_loss_scale'],
         epochs=pretraining_config['epochs'],
         batch_size=pretraining_config['batch_size'],

@@ -4,7 +4,12 @@ import jax.numpy as jnp
 import jax.tree_util as jtu
 import optax
 
-TransformationConfig = Sequence[tuple[str, Sequence[Any], dict[str, Any]]]
+Transform = str | dict[str, Any] | tuple[str, *Sequence[Any]]
+TransformationConfig = Sequence[Transform]
+
+
+def scale_by_hyperbolic_schedule(learning_rate: float, delay: float):
+    return optax.scale_by_schedule(lambda x: -learning_rate / (1 + x / delay))
 
 
 def scale_by_trust_ratio_embeddings(
@@ -45,21 +50,33 @@ def scale_by_trust_ratio_embeddings(
     return optax.GradientTransformation(init_fn, update_fn)  # type: ignore
 
 
-def get_transformations(transformations: TransformationConfig):
-    def get_transform(name: str):
+def get_transformations(
+    transformations: TransformationConfig,
+) -> list[optax.GradientTransformation]:
+    def get_transform(transform: Transform):
+        if isinstance(transform, str):
+            name = transform
+            args, kwargs = [], {}
+        elif isinstance(transform, dict):
+            transform = transform.copy()
+            name = transform.pop('transform')
+            args, kwargs = [], transform
+        else:
+            name = transform[0]
+            args, kwargs = transform[1:], {}
+
         if name in globals():
-            return globals()[name]
+            constructor = globals()[name]
         elif hasattr(optax, name):
-            return getattr(optax, name)
+            constructor = getattr(optax, name)
         else:
             raise ValueError(f'Unknown transformation {name}')
+        return constructor(*args, **kwargs)
 
-    return [
-        get_transform(name)(*args, **kwargs) for name, args, kwargs in transformations
-    ]
+    return [get_transform(transform) for transform in transformations]
 
 
-def filter_by_path(name: str, transformations: TransformationConfig):
+def filter_by_param(name: str, transformations: TransformationConfig):
     def mask(params):
         def _mask(path, tensor):
             try:
@@ -72,12 +89,5 @@ def filter_by_path(name: str, transformations: TransformationConfig):
     return optax.masked(optax.chain(*get_transformations(transformations)), mask)
 
 
-def make_optimizer(
-    transformations: TransformationConfig,
-    learning_rate: float,
-    delay: float,
-):
-    return optax.chain(
-        *get_transformations(transformations),
-        optax.scale_by_schedule(lambda x: -learning_rate / (1 + x / delay)),
-    )
+def make_optimizer(transformations: TransformationConfig):
+    return optax.chain(*get_transformations(transformations))

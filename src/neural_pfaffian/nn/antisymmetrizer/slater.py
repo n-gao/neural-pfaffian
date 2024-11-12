@@ -30,7 +30,10 @@ class FixedOrbitals(ReparamModule):
             jax.nn.initializers.normal(1 / jnp.sqrt(inp_dim), dtype=jnp.float32),
             (elec_embeddings.shape[-1], self.num_orbitals * self.determinants),
         )
-        env = self.envelope(systems)
+        # Set envelope output correctly
+        env = self.envelope.copy(
+            out_dim=self.num_orbitals * self.determinants, out_per_nuc=False
+        )(systems)
         assert len(env) == 1
         env = env[0][systems.inverse_unique_indices]  # original order
         env = env.reshape(systems.n_elec, self.num_orbitals * self.determinants)
@@ -52,22 +55,20 @@ class Slater(ReparamModule, AntisymmetrizerP[SlaterOrbitals, None]):
             systems.spins_are_identical
         ), 'Slater requires identical spins for all molecules'
         n_up, n_down = systems.spins[0]
-        n_orb = max(n_up, n_down)
+        n_orb, n_mols = max(n_up, n_down), systems.n_mols
         # Set envelopes output correctly
-        env = self.envelope.clone(out_dim=n_orb * self.determinants, out_per_nuc=False)
-
-        same_orbs = FixedOrbitals(
-            n_orb, self.determinants, env.clone(pi_init=1.0, keep_distr=False)
+        diag = FixedOrbitals(
+            n_orb, self.determinants, self.envelope.copy(pi_init=1.0, keep_distr=False)
         )(systems, elec_embeddings)
-        diff_orbs = FixedOrbitals(
-            n_orb, self.determinants, env.clone(pi_init=0.1, keep_distr=True)
+        off = FixedOrbitals(
+            n_orb, self.determinants, self.envelope.copy(pi_init=0.1, keep_distr=True)
         )(systems, elec_embeddings)
 
-        same_orbs = einops.rearrange(same_orbs, '(m e) o d -> m d e o', m=systems.n_mols)
-        diff_orbs = einops.rearrange(diff_orbs, '(m e) o d -> m d e o', m=systems.n_mols)
+        diag = einops.rearrange(diag, '(mol elec) orb det -> mol det elec orb', m=n_mols)
+        off = einops.rearrange(off, '(mol elec) orb det -> mol det elec orb', m=n_mols)
 
-        uu, dd = same_orbs[..., :n_up, :n_up], same_orbs[..., n_up:, :n_down]
-        ud, du = diff_orbs[..., :n_up, :n_down], diff_orbs[..., n_up:, :n_up]
+        uu, dd = diag[..., :n_up, :n_up], diag[..., n_up:, :n_down]
+        ud, du = off[..., :n_up, :n_down], off[..., n_up:, :n_up]
         return SlaterOrbitals(
             jnp.concatenate(
                 [

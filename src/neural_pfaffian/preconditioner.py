@@ -1,4 +1,3 @@
-import functools
 from typing import Protocol, TypeVar
 
 import jax
@@ -20,6 +19,7 @@ from neural_pfaffian.utils.jax_utils import (
     pidx,
     pmean,
     psum_if_pmap,
+    vmap,
 )
 from neural_pfaffian.utils.tree_utils import (
     tree_add,
@@ -197,8 +197,8 @@ class Spring(PyTreeNode, Preconditioner[SpringState]):
         for elec, nuc, (spins, charges) in systems.iter_grouped_molecules():
             sub_systems = Systems((spins,), (charges,), elec, nuc, {})
 
-            @functools.partial(jax.vmap, in_axes=(None, sub_systems.electron_vmap))
-            @functools.partial(jax.vmap, in_axes=(None, sub_systems.molecule_vmap))
+            @vmap(in_axes=(None, sub_systems.electron_vmap))
+            @vmap(in_axes=(None, sub_systems.molecule_vmap))
             @jax.grad
             def jac_fn(params, systems):
                 return log_p(params, systems).sum()

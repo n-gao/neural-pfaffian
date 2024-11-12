@@ -1,14 +1,14 @@
 from collections import defaultdict
-from typing import Any, Callable, Generic, NamedTuple, Sequence, TypeVar
+from typing import Any, Callable, Generic, Self, Sequence, TypeVar
 
-import jax
 import jax.numpy as jnp
 import jax.tree_util as jtu
 import numpy as np
 import numpy.typing as npt
-from jaxtyping import ArrayLike
+from flax.struct import PyTreeNode
+from jaxtyping import Array, ArrayLike, Float
 
-from neural_pfaffian.utils.jax_utils import jit
+from .jax_utils import jit
 
 T = TypeVar('T')
 
@@ -96,58 +96,29 @@ def adj_idx(
 T = TypeVar('T')
 
 
-class EMAState(NamedTuple, Generic[T]):
+class EMA(Generic[T], PyTreeNode):
     data: T
-    weight: jax.Array
+    weight: Float[Array, '']
 
+    @classmethod
+    def init(cls, data: T) -> 'EMA[T]':
+        return cls(jtu.tree_map(jnp.zeros_like, data), jnp.zeros((), dtype=jnp.float32))
 
-# EMA for usage in JAX
-def ema_make(tree: T) -> EMAState[T]:
-    """
-    Creates an EMA state for a pytree.
+    @jit
+    def update(self, value: T, decay: ArrayLike) -> Self:
+        return self.replace(
+            data=jtu.tree_map(lambda a, b: a * decay + b, self.data, value),
+            weight=self.weight * decay + 1,
+        )
 
-    Args:
-    - tree: pytree to create the EMA state for
-    Return:
-    - EMA state
-    """
-    return EMAState(jtu.tree_map(jnp.zeros_like, tree), jnp.zeros((), dtype=jnp.float32))
-
-
-@jit
-def ema_update(data: EMAState[T], value: T, decay: ArrayLike = 0.9) -> EMAState[T]:
-    """
-    Updates an EMA state with a new value.
-
-    Args:
-    - data: EMA state
-    - value: value to update the EMA state with
-    - decay: decay rate
-    Return:
-    - updated EMA state
-    """
-    tree, weight = data
-    return EMAState(
-        jtu.tree_map(lambda a, b: a * decay + b, tree, value), weight * decay + 1
-    )
-
-
-@jit
-def ema_value(data: EMAState[T], backup: T | None = None) -> T:
-    """
-    Computes the EMA value of an EMA state.
-
-    Args:
-    - data: EMA state
-    - backup: backup value to use if the weight is 0
-    Return:
-    - EMA value
-    """
-    tree, weight = data
-    if backup is None:
-        backup = tree
-    is_nan = weight == 0
-    return jtu.tree_map(lambda x, y: jnp.where(is_nan, y, x / weight), tree, backup)
+    @jit
+    def value(self, backup: T | None = None) -> T:
+        if backup is None:
+            backup = self.data
+        is_nan = self.weight == 0
+        return jtu.tree_map(
+            lambda x, y: jnp.where(is_nan, y, x / self.weight), self.data, backup
+        )
 
 
 def batch(data: Sequence[T], n: int) -> list[Sequence[T]]:

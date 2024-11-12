@@ -22,14 +22,8 @@ from neural_pfaffian.nn.module import ParamTypes, ReparamModule
 from neural_pfaffian.nn.utils import block
 from neural_pfaffian.nn.wave_function import AntisymmetrizerP
 from neural_pfaffian.systems import Systems, SystemsWithHF, chunk_electron
-from neural_pfaffian.utils import (
-    EMAState,
-    ema_make,
-    ema_update,
-    ema_value,
-    itemgetter,
-)
-from neural_pfaffian.utils.jax_utils import pmean_if_pmap
+from neural_pfaffian.utils import EMA, itemgetter
+from neural_pfaffian.utils.jax_utils import pmean_if_pmap, vmap
 
 from .utils import hf_to_full
 
@@ -56,7 +50,10 @@ class PerNucOrbitals(ReparamModule):
             keep_distr=True,
         )
         # Set envelopes output correctly
-        env = self.envelope(systems)
+        env = self.envelope.copy(
+            out_dim=self.determinants * self.orb_per_nuc,
+            out_per_nuc=True,
+        )(systems)
 
         result: list[Array] = []
         for emb, env, W, (spins, charges) in zip(
@@ -70,10 +67,15 @@ class PerNucOrbitals(ReparamModule):
             norm = (max(spins) / n_orb) ** 0.5
 
             @jax.vmap  # vmap over different molecules
-            def _orbitals(emb, env, W):
-                env = einops.rearrange(env, 'e (o d) -> e o d', o=n_orb)
-                W = W.reshape(n_orb, inp_dim, self.determinants)
-                return jnp.einsum('ei,oid,eod->eod', emb, W, env) * norm
+            def _orbitals(emb: Array, env: Array, W: Array):
+                env = einops.rearrange(env, 'elec (orb det) -> elec orb det', orb=n_orb)
+                W = einops.rearrange(W, 'nuc opa dim det -> (nuc opa) dim det')
+                return norm * einops.einsum(
+                    emb,
+                    W,
+                    env,
+                    'elec dim, orb dim det, elec orb det -> elec orb det',
+                )
 
             result.append(_orbitals(emb, env, W))
         return result
@@ -92,7 +94,7 @@ class PfaffianOrbitals(PyTreeNode):
 
 class Pfaffian(
     ReparamModule,
-    AntisymmetrizerP[list[PfaffianOrbitals], EMAState[PfaffianPretrainingState]],
+    AntisymmetrizerP[list[PfaffianOrbitals], EMA[PfaffianPretrainingState]],
 ):
     determinants: int
     orb_per_nuc: int
@@ -113,23 +115,17 @@ class Pfaffian(
             (systems.n_nn, self.orb_per_nuc, self.orb_per_nuc, n_det),
             param_type=ParamTypes.NUCLEI_NUCLEI,
             bias=False,
-            chunk_axis=-1,
         )
-        # Set envelopes output correctly
-        env = self.envelope.clone(
-            out_dim=self.orb_per_nuc * self.determinants, out_per_nuc=True
-        )
-
         same_orbs = PerNucOrbitals(
-            n_det, self.orb_per_nuc, env.clone(pi_init=1.0, keep_distr=False)
+            n_det, self.orb_per_nuc, self.envelope.copy(pi_init=1.0, keep_distr=False)
         )(systems, elec_embeddings)
         # init diff orbs with 0
         diff_orbs = PerNucOrbitals(
-            n_det, self.orb_per_nuc, env.clone(pi_init=0.01, keep_distr=True)
+            n_det, self.orb_per_nuc, self.envelope.copy(pi_init=0.01, keep_distr=True)
         )(systems, elec_embeddings)
         # If n_elec is odd, we need an extra orbital
         fill_orbs = PerNucOrbitals(
-            n_det, 1, env.clone(out_dim=n_det, pi_init=1.0, keep_distr=False)
+            n_det, 1, self.envelope.copy(pi_init=1.0, keep_distr=False)
         )(systems, elec_embeddings)
 
         result: list[PfaffianOrbitals] = []
@@ -142,7 +138,8 @@ class Pfaffian(
         ):
             n_elec, n_up, n_nuc = sum(spins), spins[0], len(charges)
 
-            @jax.vmap  # vmap over different molecules
+            @vmap  # vmap over different molecules
+            @vmap(in_axes=-1, out_axes=0)  # vmap over different determinants
             def _orbitals(diag: Array, offdiag: Array, A: Array, fill: Array):
                 # Orbitals
                 uu, dd, ud, du = diag[:n_up], diag[n_up:], offdiag[:n_up], offdiag[n_up:]
@@ -152,27 +149,25 @@ class Pfaffian(
                         jnp.concatenate([du, dd], axis=1),
                     ],
                     axis=0,
-                )  # (n_elec, 2*n_orbs, n_det)
-                orbitals = jnp.moveaxis(orbitals, -1, 0)  # (n_det, n_elec, 2*n_orbs)
+                )  # (n_elec, 2*n_orbs)
 
-                # A: (2*n_orbs, 2*n_orbs, n_det)
-                A = einops.rearrange(A, '(n1 n2) o1 o2 d -> d (n1 o1) (n2 o2)', n1=n_nuc)
+                # A: (2*n_orbs, 2*n_orbs)
+                A = einops.rearrange(A, '(n1 n2) o1 o2 -> (n1 o1) (n2 o2)', n1=n_nuc)
                 A_diag = (A - A.mT) / 2
                 A_offdiag = (A + A.mT) / 2
                 A = jnp.concatenate(
                     [
-                        jnp.concatenate([A_diag, A_offdiag], axis=2),
-                        jnp.concatenate([-A_offdiag, A_diag], axis=2),
+                        jnp.concatenate([A_diag, A_offdiag], axis=1),
+                        jnp.concatenate([-A_offdiag, A_diag], axis=1),
                     ],
-                    axis=1,
+                    axis=0,
                 )
-
-                # fill - orbitals = n_nuc
-                fill = einops.rearrange(fill, 'elec orb det -> det elec orb').sum(axis=-1)
 
                 # Product
                 orb_A_orb_product = skewsymmetric_quadratic(orbitals, A)
+                # Pad additional orbital if n_elec is odd
                 if n_elec % 2 == 1:
+                    fill = einops.einsum(fill, 'elec orb -> elec')
                     orb_A_orb_product = block(
                         orb_A_orb_product, fill, -fill, jnp.zeros((), dtype=fill.dtype)
                     )
@@ -205,14 +200,14 @@ class Pfaffian(
         systems: Systems,
         hf_orbitals: Sequence[HFOrbitals],  # list of molecules
         orbitals: list[PfaffianOrbitals],  # grouped by molecules
-        state: Sequence[EMAState[PfaffianPretrainingState]],  # list of molecules
+        state: Sequence[EMA[PfaffianPretrainingState]],  # list of molecules
     ):
         @jax.vmap
         def hf_match(
             hf_up: jax.Array,
             hf_down: jax.Array,
             pf_orbs: PfaffianOrbitals,
-            state: EMAState[PfaffianPretrainingState],
+            state: EMA[PfaffianPretrainingState],
         ):
             dtype = hf_up.dtype
             leading_dims = hf_up.shape[:-2]
@@ -299,16 +294,14 @@ class Pfaffian(
             # Initialize optimizer
             optimizer = optax.contrib.prodigy(self.hf_match_lr)
             # Update the state
-            state = ema_update(
-                state, optim(optimizer, ema_value(state)), self.hf_match_ema
-            )
-            loss_val = loss(ema_value(state), final=True)
+            state = state.update(optim(optimizer, state.value()), self.hf_match_ema)
+            loss_val = loss(state.value(), final=True)
             return loss_val, state
 
         def stack(*x):
             return jnp.stack(x)
 
-        out_state: Sequence[EMAState[PfaffianPretrainingState]] = []
+        out_state: Sequence[EMA[PfaffianPretrainingState]] = []
         loss = jnp.zeros((), dtype=jnp.float32)
         for idx, pfaff_orbs in zip(systems.unique_indices, orbitals):
             getter = itemgetter(*idx)
@@ -331,16 +324,17 @@ class Pfaffian(
         return loss, out_state
 
     def init_systems(self, key: Array, systems: SystemsWithHF):
-        states = []
+        states: list[EMA[PfaffianPretrainingState]] = []
         for sub_sys in systems.sub_configs:
             n_up, n_down = sub_sys.spins[0]
             if sub_sys.n_elec % 2 == 1:
                 n_down += 1
+            n_el = n_up + n_down
             n_orbs = sub_sys.n_nuc * self.orb_per_nuc
-            state = ema_make(
+            state = EMA[PfaffianPretrainingState].init(
                 PfaffianPretrainingState(
                     orbitals=jnp.zeros((2, n_orbs, n_orbs), dtype=jnp.float32),
-                    pfaffian=jnp.zeros((n_up + n_down, n_up + n_down), dtype=jnp.float32),
+                    pfaffian=jnp.zeros((n_el, n_el), dtype=jnp.float32),
                 )
             )
             states.append(state)

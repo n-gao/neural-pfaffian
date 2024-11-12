@@ -41,7 +41,7 @@ class MetaNetworkP(Protocol):
 
     def init(self, key: Array, systems: Systems) -> Parameters: ...
     def apply(self, params: Parameters, systems: Systems) -> PyTree[Array]: ...
-    def clone(self, out_structure: PyTree[ParamMeta], charges: Sequence[int]) -> Self: ...
+    def copy(self, out_structure: PyTree[ParamMeta], charges: Sequence[int]) -> Self: ...
 
 
 class EmbeddingP(Protocol):
@@ -114,7 +114,7 @@ class WaveFunction(Generic[Orb, S], ReparamModule):
     def embedding(self, params: Parameters, systems: Systems) -> ElecEmbedding:
         return self.apply(params, systems, method=self._embedding)
 
-    def orbitals(self, params: Parameters, systems: Systems) -> list[Orb]:
+    def orbitals(self, params: Parameters, systems: Systems) -> Orb:
         return self.apply(params, systems, method=self._orbitals)  # type: ignore
 
     def signed(self, params: Parameters, systems: Systems) -> SignedLogAmplitude:
@@ -144,7 +144,7 @@ class GeneralizedWaveFunction(Generic[Orb, S], PyTreeNode):
             charges = meta_network.charges
             if not charges:
                 charges = tuple(np.unique(systems.flat_charges).astype(int))
-            meta_network = meta_network.clone(out_structure=reparam_meta, charges=charges)
+            meta_network = meta_network.copy(out_structure=reparam_meta, charges=charges)
         else:
             meta_network = None
             reparam_meta = jax.tree_map(
