@@ -321,7 +321,7 @@ class Pfaffian(
                 out_state.append(jtu.tree_map(lambda x: x[i], state_i))
         # invert the order of the unique indices
         out_state = itemgetter(*systems.inverse_unique_indices)(out_state)
-        return loss, out_state
+        return loss / systems.n_mols, out_state
 
     def init_systems(self, key: Array, systems: SystemsWithHF):
         states: list[EMA[PfaffianPretrainingState]] = []
