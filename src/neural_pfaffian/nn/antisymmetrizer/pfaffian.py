@@ -5,6 +5,7 @@ import flax.linen as nn
 import jax
 import jax.numpy as jnp
 import jax.tree_util as jtu
+import numpy as np
 import optax
 from flax.struct import PyTreeNode
 from jaxtyping import Array, Float
@@ -28,20 +29,35 @@ from neural_pfaffian.utils.jax_utils import pmean_if_pmap, vmap
 from .utils import hf_to_full
 
 
+def max_orbitals(orb_per_charge: dict[str, int]):
+    return max(orb_per_charge.values())
+
+
+def orbital_mask(orb_per_charge: dict[str, int], charges: Sequence[int]):
+    max_orb = max_orbitals(orb_per_charge)
+    return np.concatenate(
+        [
+            [True] * orb + [False] * (max_orb - orb)
+            for orb in map(orb_per_charge.__getitem__, map(str, charges))
+        ]
+    )
+
+
 class PerNucOrbitals(ReparamModule):
     determinants: int
-    orb_per_nuc: int
+    orb_per_charge: dict[str, int]
     envelope: Envelope
 
     @nn.compact
     def __call__(self, systems: Systems, elec_embeddings: Float[Array, 'electrons dim']):
         inp_dim = elec_embeddings.shape[-1]
+        max_orb = max_orbitals(self.orb_per_charge)
         W, W_meta = self.reparam(
             'projection',
             jax.nn.initializers.normal(1 / jnp.sqrt(inp_dim), dtype=jnp.float32),
             (
                 systems.n_nuc,
-                self.orb_per_nuc,
+                max_orb,
                 elec_embeddings.shape[-1],
                 self.determinants,
             ),
@@ -51,7 +67,7 @@ class PerNucOrbitals(ReparamModule):
         )
         # Set envelopes output correctly
         env = self.envelope.copy(
-            out_dim=self.determinants * self.orb_per_nuc,
+            out_dim=self.determinants * max_orb,
             out_per_nuc=True,
         )(systems)
 
@@ -63,13 +79,16 @@ class PerNucOrbitals(ReparamModule):
             systems.unique_spins_and_charges,
         ):
             n_nuc = len(charges)
-            n_orb = self.orb_per_nuc * n_nuc
+            n_orb = max_orb * n_nuc
             norm = (max(spins) / n_orb) ** 0.5
+            orb_mask = orbital_mask(self.orb_per_charge, charges)
 
             @jax.vmap  # vmap over different molecules
             def _orbitals(emb: Array, env: Array, W: Array):
                 env = einops.rearrange(env, 'elec (orb det) -> elec orb det', orb=n_orb)
+                env = env[:, orb_mask, :]
                 W = einops.rearrange(W, 'nuc opa dim det -> (nuc opa) dim det')
+                W = W[orb_mask, :, :]
                 return norm * einops.einsum(
                     emb,
                     W,
@@ -97,7 +116,7 @@ class Pfaffian(
     AntisymmetrizerP[list[PfaffianOrbitals], EMA[PfaffianPretrainingState]],
 ):
     determinants: int
-    orb_per_nuc: int
+    orb_per_charge: dict[str, int]
     envelope: Envelope
 
     hf_match_steps: int
@@ -109,23 +128,27 @@ class Pfaffian(
     @nn.compact
     def __call__(self, systems: Systems, elec_embeddings: Float[Array, 'electrons dim']):
         n_det = self.determinants
+        max_orb = max_orbitals(self.orb_per_charge)
         A, A_meta = self.reparam(
             'antisymmetrizer',
             jax.nn.initializers.normal(1, dtype=jnp.float32),
-            (systems.n_nn, self.orb_per_nuc, self.orb_per_nuc, n_det),
+            (systems.n_nn, max_orb, max_orb, n_det),
             param_type=ParamTypes.NUCLEI_NUCLEI,
             bias=False,
         )
+
         same_orbs = PerNucOrbitals(
-            n_det, self.orb_per_nuc, self.envelope.copy(pi_init=1.0, keep_distr=False)
+            n_det, self.orb_per_charge, self.envelope.copy(pi_init=1.0, keep_distr=False)
         )(systems, elec_embeddings)
         # init diff orbs with 0
         diff_orbs = PerNucOrbitals(
-            n_det, self.orb_per_nuc, self.envelope.copy(pi_init=1e-3, keep_distr=True)
+            n_det, self.orb_per_charge, self.envelope.copy(pi_init=1e-3, keep_distr=True)
         )(systems, elec_embeddings)
         # If n_elec is odd, we need an extra orbital
         fill_orbs = PerNucOrbitals(
-            n_det, 1, self.envelope.copy(pi_init=1.0, keep_distr=False)
+            n_det,
+            jtu.tree_map(lambda _: 1, self.orb_per_charge),
+            self.envelope.copy(pi_init=1.0, keep_distr=False),
         )(systems, elec_embeddings)
 
         result: list[PfaffianOrbitals] = []
@@ -137,11 +160,12 @@ class Pfaffian(
             systems.unique_spins_and_charges,
         ):
             n_elec, n_up, n_nuc = sum(spins), spins[0], len(charges)
+            orb_mask = orbital_mask(self.orb_per_charge, charges)
 
             @vmap  # vmap over different molecules
             @vmap(in_axes=-1, out_axes=0)  # vmap over different determinants
             def _orbitals(diag: Array, offdiag: Array, A: Array, fill: Array):
-                # Orbitals
+                # construct full orbitals
                 uu, dd, ud, du = diag[:n_up], diag[n_up:], offdiag[:n_up], offdiag[n_up:]
                 orbitals = jnp.concatenate(
                     [
@@ -153,15 +177,9 @@ class Pfaffian(
 
                 # A: (2*n_orbs, 2*n_orbs)
                 A = einops.rearrange(A, '(n1 n2) o1 o2 -> (n1 o1) (n2 o2)', n1=n_nuc)
-                A_diag = (A - A.mT) / 2
-                A_offdiag = (A + A.mT) / 2
-                A = jnp.concatenate(
-                    [
-                        jnp.concatenate([A_diag, A_offdiag], axis=1),
-                        jnp.concatenate([-A_offdiag, A_diag], axis=1),
-                    ],
-                    axis=0,
-                )
+                A = A[orb_mask, :][:, orb_mask]  # remove unused orbitals
+                A_diag, A_offdiag = (A - A.mT) / 2, (A + A.mT) / 2
+                A = jnp.block([[A_diag, A_offdiag], [-A_offdiag, A_diag]])
 
                 # Product
                 orb_A_orb_product = skewsymmetric_quadratic(orbitals, A)
@@ -330,7 +348,7 @@ class Pfaffian(
             if sub_sys.n_elec % 2 == 1:
                 n_down += 1
             n_el = n_up + n_down
-            n_orbs = sub_sys.n_nuc * self.orb_per_nuc
+            n_orbs = orbital_mask(self.orb_per_charge, tuple(sub_sys.flat_charges)).sum()
             state = EMA[PfaffianPretrainingState].init(
                 PfaffianPretrainingState(
                     orbitals=jnp.zeros((2, n_orbs, n_orbs), dtype=jnp.float32),

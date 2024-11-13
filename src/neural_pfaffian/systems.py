@@ -29,7 +29,7 @@ Electrons = Float[Array, '... n_elec 3']
 Nuclei = Float[Array, '... n_nuc 3']
 
 Spins = tuple[int, int]
-Charges = tuple[int, ...] | Array
+Charges = tuple[int, ...]
 
 T_Array = TypeVar('T_Array', bound=Array)
 ElecElecDistances = Float[Array, 'electrons_electrons 4']

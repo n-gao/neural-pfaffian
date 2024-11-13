@@ -40,7 +40,17 @@ wave_function:
     args:
       pfaffian:
         determinants: 16
-        orb_per_nuc: 8
+        orb_per_charge:
+          "1": 2
+          "2": 2
+          "3": 8
+          "4": 8
+          "5": 8
+          "6": 8
+          "7": 8
+          "8": 8
+          "9": 8
+          "10": 8
         hf_match_steps: 50
         hf_match_lr: 1
         hf_match_orbitals: 1

@@ -135,7 +135,16 @@ def envelope(request):
 # Orbitals
 @pytest.fixture
 def pfaffian(envelope):
-    return Pfaffian(2, 4, envelope, 10, 0.1, 1.0, 1.0, 0.99)
+    return Pfaffian(
+        2,
+        {'1': 2, '2': 2, '3': 5, '4': 5, '5': 5, '6': 5, '7': 5, '8': 5, '9': 5, '10': 5},
+        envelope,
+        10,
+        0.1,
+        1.0,
+        1.0,
+        0.99,
+    )
 
 
 @pytest.fixture
@@ -284,7 +293,16 @@ def generalized_wf_params(generalized_wf: GeneralizedWaveFunction, one_system: S
 # Example WF
 @pytest.fixture
 def neural_pfaffian(moon, double_jastrow, efficient_envelope, meta_gnn, one_system):
-    pfaffian = Pfaffian(3, 4, efficient_envelope, 10, 0.1, 1.0, 1.0, 0.99)
+    pfaffian = Pfaffian(
+        3,
+        {'1': 2, '2': 2, '3': 5, '4': 5, '5': 5, '6': 5, '7': 5, '8': 5, '9': 5, '10': 5},
+        efficient_envelope,
+        10,
+        0.1,
+        1.0,
+        1.0,
+        0.99,
+    )
     return GeneralizedWaveFunction.create(
         WaveFunction(moon, pfaffian, double_jastrow), meta_gnn, one_system
     )
