@@ -64,8 +64,16 @@ class Slater(ReparamModule, AntisymmetrizerP[SlaterOrbitals, None]):
             n_orb, self.determinants, self.envelope.copy(pi_init=0.1, keep_distr=True)
         )(systems, elec_embeddings)
 
-        diag = einops.rearrange(diag, '(mol elec) orb det -> mol det elec orb', m=n_mols)
-        off = einops.rearrange(off, '(mol elec) orb det -> mol det elec orb', m=n_mols)
+        diag = einops.rearrange(
+            diag,
+            '(mol elec) orb det -> mol det elec orb',
+            mol=n_mols,
+        )
+        off = einops.rearrange(
+            off,
+            '(mol elec) orb det -> mol det elec orb',
+            mol=n_mols,
+        )
 
         uu, dd = diag[..., :n_up, :n_up], diag[..., n_up:, :n_down]
         ud, du = off[..., :n_up, :n_down], off[..., n_up:, :n_up]
