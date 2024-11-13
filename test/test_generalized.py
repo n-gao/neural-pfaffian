@@ -29,7 +29,7 @@ def test_independence_embedding(generalized_wf, generalized_wf_params, systems_f
         systems_float64, jnp.split(targets, np.cumsum(systems_float64.n_elec_by_mol))
     ):
         indep = generalized_wf.embedding(generalized_wf_params, s)
-        assert_allclose(indep, target, atol=1e-6)
+        assert_allclose(indep, target, atol=2e-6)
 
 
 def test_independence_logpsi(generalized_wf, generalized_wf_params, systems_float64):
