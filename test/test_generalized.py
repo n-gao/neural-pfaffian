@@ -23,7 +23,8 @@ def test_fwd_and_bwd(generalized_wf, generalized_wf_params, two_systems):
     assert_finite(grad)
 
 
-def test_independence_embedding(generalized_wf, generalized_wf_params, systems_float64):
+def test_independence_embedding(generalized_wf, generalized_wf_params, two_systems):
+    systems_float64 = jax.tree.map(lambda x: x.astype(jnp.float64), two_systems)
     targets = generalized_wf.embedding(generalized_wf_params, systems_float64)
     for s, target in zip(
         systems_float64, jnp.split(targets, np.cumsum(systems_float64.n_elec_by_mol))
@@ -32,7 +33,8 @@ def test_independence_embedding(generalized_wf, generalized_wf_params, systems_f
         assert_allclose(indep, target, atol=2e-6)
 
 
-def test_independence_logpsi(generalized_wf, generalized_wf_params, systems_float64):
+def test_independence_logpsi(generalized_wf, generalized_wf_params, two_systems):
+    systems_float64 = jax.tree.map(lambda x: x.astype(jnp.float64), two_systems)
     targets = generalized_wf.apply(generalized_wf_params, systems_float64)
     for s, target in zip(systems_float64, targets):
         indep = generalized_wf.apply(generalized_wf_params, s)
