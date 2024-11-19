@@ -132,7 +132,7 @@ class Pfaffian(
         A, A_meta = self.reparam(
             'antisymmetrizer',
             jax.nn.initializers.normal(1, dtype=jnp.float32),
-            (systems.n_nn, max_orb, max_orb, n_det),
+            (systems.n_nn, systems.max_num_states, max_orb, max_orb, n_det),
             param_type=ParamTypes.NUCLEI_NUCLEI,
             bias=False,
         )
@@ -152,12 +152,14 @@ class Pfaffian(
         )(systems, elec_embeddings)
 
         result: list[PfaffianOrbitals] = []
-        for diag, offdiag, fill, A, (spins, charges) in zip(
+
+        for diag, offdiag, fill, A, (spins, charges), excitation in zip(
             same_orbs,
             diff_orbs,
             fill_orbs,
             systems.group(A, A_meta.param_type.value.chunk_fn),
             systems.unique_spins_and_charges,
+            systems.group(systems.excitations, lambda *_: 1),
         ):
             n_elec, n_up, n_nuc = sum(spins), spins[0], len(charges)
             orb_mask = orbital_mask(self.orb_per_charge, charges)
@@ -174,6 +176,9 @@ class Pfaffian(
                     ],
                     axis=0,
                 )  # (n_elec, 2*n_orbs)
+
+                # select antisymmetrizer for excitation
+                A = A[excitation]
 
                 # A: (2*n_orbs, 2*n_orbs)
                 A = einops.rearrange(A, '(n1 n2) o1 o2 -> (n1 o1) (n2 o2)', n1=n_nuc)
