@@ -21,7 +21,7 @@ from flax.struct import PyTreeNode, field
 from jaxtyping import Array, ArrayLike, Float, Integer, PyTree
 
 from neural_pfaffian.hf import HFOrbitalFn, make_hf_orbitals
-from neural_pfaffian.utils import adj_idx, merge_slices, unique
+from neural_pfaffian.utils import adj_idx, batch, merge_slices, unique
 from neural_pfaffian.utils.jax_utils import BATCH_SHARD, REPLICATE_SHARD
 from neural_pfaffian.utils.tree_utils import tree_take
 
@@ -164,6 +164,10 @@ class Systems(Sequence['Systems'], PyTreeNode):
     electrons: Electrons
     nuclei: Nuclei
     mol_data: dict[str, PyTree[Float[Array, 'n_mols ...']]]
+    mol_ids: tuple[int, ...] = field(pytree_node=False)
+    """Uniquely identifies a molecule. Used to unite all excited states of a molecule."""
+    excitations: tuple[int, ...] = field(pytree_node=False)
+    """Excitation index. Discerns between different excited states of a molecule."""
 
     def set_mol_data(self, key: str, data: PyTree[Float[Array, 'n_mols ...']]):
         return self.replace(mol_data=self.mol_data | {key: data})
@@ -206,6 +210,10 @@ class Systems(Sequence['Systems'], PyTreeNode):
     @property
     def flat_charges(self) -> npt.NDArray[np.int64]:
         return np.concatenate(self.charges)
+
+    @property
+    def max_num_states(self):
+        return max(self.excitations) + 1
 
     @property
     def spin_mask(self) -> npt.NDArray[np.int64]:
@@ -344,6 +352,7 @@ class Systems(Sequence['Systems'], PyTreeNode):
             self.group(self.electrons, lambda s, c: sum(s), axis=-2),
             self.group(self.nuclei, lambda s, c: len(c), axis=-2),
             self.unique_spins_and_charges,
+            self.group(self.excitations, lambda *_: 1),
         )
 
     @property
@@ -407,20 +416,30 @@ class Systems(Sequence['Systems'], PyTreeNode):
             tuple([None] * self.n_mols),
         )
 
+    # ???: Do I need to add the excitation here?
     def __eq__(self, other):
         if not isinstance(other, Systems):
             return False
         # TODO: Sort first
-        return self.spins == other.spins and self.charges == other.charges
+        return all(
+            [
+                self.spins == other.spins,
+                self.charges == other.charges,
+                self.excitations == other.excitations,
+            ]
+        )
 
     def __lt__(self, other):
         if not isinstance(other, Systems):
             return NotImplemented
         # TODO: Sort first
-        if self.spins == other.spins:
-            return self.charges < other.charges
-        else:
+        if self.spins != other.spins:
             return self.spins < other.spins
+
+        if self.charges != other.charges:
+            return self.charges < other.charges
+
+        return self.excitations < other.excitations
 
     def get_nth_molecule(self, idx: int) -> Self:
         e_idx = np.cumsum((0,) + self.n_elec_by_mol)[idx]
@@ -431,6 +450,8 @@ class Systems(Sequence['Systems'], PyTreeNode):
             self.electrons[..., e_idx : e_idx + self.n_elec_by_mol[idx], :],
             self.nuclei[..., n_idx : n_idx + self.n_nuc_by_mol[idx], :],
             tree_take(self.mol_data, slice(idx, idx + 1), 0),
+            (self.mol_ids[idx],),
+            (self.excitations[idx],),
         )  # type: ignore
 
     def __getitem__(self, idx) -> Self:
@@ -458,6 +479,8 @@ class Systems(Sequence['Systems'], PyTreeNode):
                 self.mol_data,
                 other.mol_data,
             ),
+            self.mol_ids + other.mol_ids,
+            self.excitations + other.excitations,
         )
 
     def __radd__(self, other):
@@ -469,6 +492,20 @@ class Systems(Sequence['Systems'], PyTreeNode):
         flat_systems = [s for sys in systems for s in sys.sub_configs]
         flat_systems = sorted(flat_systems)
         return sum(flat_systems[1:], flat_systems[0])
+
+    @classmethod
+    def safe_batch(cls, systems: 'Systems', n: int) -> list['Systems']:
+        """Batches the systems into chunks of size n.
+        Takes precaution not to separate identical mol_ids into different batches."""
+        batches = batch(systems, n)
+        # Check if different batches contain the same mol_ids
+        if set.intersection(*[set(batch.mol_ids) for batch in batches]):
+            raise ValueError(
+                'Batching would separate excited states of the same molecule.'
+                f'Please adjust the batch size {n} to be divisible by '
+                f'{systems.max_num_states}.'
+            )
+        return batches
 
     @classmethod
     def from_pyscf(cls, mol: pyscf.gto.Mole) -> Self:
@@ -483,20 +520,18 @@ class Systems(Sequence['Systems'], PyTreeNode):
         spins: Spins,
         charges: Charges,
         nuclei: Nuclei,
+        mol_ids: tuple[int, ...] = (0,),
+        excitations: tuple[int, ...] = (0,),
     ) -> Self:
         n_elec = np.sum(spins)
         electrons = jnp.zeros((n_elec, 3), dtype=jnp.float32)
-        return cls((spins,), (charges,), electrons, nuclei, {})
+        return cls((spins,), (charges,), electrons, nuclei, {}, mol_ids, excitations)
 
     @property
     def example_input(self):
         # A dummy input without any batch dimensions
-        return Systems(
-            self.spins,
-            self.charges,
-            jnp.zeros((self.n_elec, 3), dtype=self.electrons.dtype),
-            self.nuclei,
-            self.mol_data,
+        return self.replace(
+            electrons=jnp.zeros((self.n_elec, 3), dtype=self.electrons.dtype)
         )
 
     def init_electrons(self, key: jax.Array, batch_size: int) -> Self:
@@ -508,6 +543,7 @@ class Systems(Sequence['Systems'], PyTreeNode):
         return self.replace(electrons=jnp.concatenate(electrons, axis=-2))
 
 
+# TODO: Add support for excitation in pretraining!
 class SystemsWithHF(Systems):
     hf_functions: tuple[HFOrbitalFn, ...] = field(pytree_node=False)
     cache: tuple[PyTree[Array], ...]
@@ -515,7 +551,13 @@ class SystemsWithHF(Systems):
     @property
     def to_systems(self):
         return Systems(
-            self.spins, self.charges, self.electrons, self.nuclei, self.mol_data
+            self.spins,
+            self.charges,
+            self.electrons,
+            self.nuclei,
+            self.mol_data,
+            self.mol_ids,
+            self.excitations,
         )
 
     @property

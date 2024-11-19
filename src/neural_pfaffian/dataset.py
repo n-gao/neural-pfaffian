@@ -66,7 +66,16 @@ def create_systems(
     key: jax.Array,
     molecules: Sequence[tuple[str, dict[str, Any]]],
     num_walker_per_mol: int,
+    num_excited_states: int = 0,
 ) -> Systems:
-    return Systems.merge(
-        [globals()[name](**config) for name, config in molecules]
-    ).init_electrons(key, num_walker_per_mol)
+    systems = []
+    for molecule_idx, (name, config) in enumerate(molecules):
+        system = globals()[name](**config).replace(mol_ids=(molecule_idx,))
+        if num_excited_states > 0:
+            system = Systems.merge(
+                [system.replace(excitations=(i,)) for i in range(num_excited_states)]
+            )
+        systems.append(system)
+
+    systems = Systems.merge(systems).init_electrons(key, num_walker_per_mol)
+    return systems

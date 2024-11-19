@@ -11,8 +11,8 @@ from neural_pfaffian.nn.wave_function import (
     WaveFunctionParameters,
 )
 from neural_pfaffian.systems import Systems
-from neural_pfaffian.utils.cg import cg
 from neural_pfaffian.utils import Modules
+from neural_pfaffian.utils.cg import cg
 from neural_pfaffian.utils.jax_utils import (
     pall_to_all,
     pgather,
@@ -194,8 +194,10 @@ class Spring(PyTreeNode, Preconditioner[SpringState]):
             return x - center
 
         jacs: list[list[jax.Array]] = []
-        for elec, nuc, (spins, charges) in systems.iter_grouped_molecules():
-            sub_systems = Systems((spins,), (charges,), elec, nuc, {})
+        for elec, nuc, (spins, charges), excitations in systems.iter_grouped_molecules():
+            sub_systems = Systems(
+                (spins,), (charges,), elec, nuc, {}, (0,), (excitations,)
+            )
 
             @vmap(in_axes=(None, sub_systems.electron_vmap))
             @vmap(in_axes=(None, sub_systems.molecule_vmap))

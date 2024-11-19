@@ -39,3 +39,4 @@ systems:
     - ["diatomic", { charge1: 7, charge2: 7, distance: 5.87221 }]
     - ["diatomic", { charge1: 7, charge2: 7, distance: 6.40605 }]
   num_walker_per_mol: 110
+  num_excited_states: 0

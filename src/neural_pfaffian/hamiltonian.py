@@ -54,6 +54,8 @@ def make_kinetic_energy(
                 electrons=electrons,
                 nuclei=nuclei,
                 mol_data={},
+                mol_ids=(0,),
+                excitations=(0,),
             )
 
             @vmap_fn
