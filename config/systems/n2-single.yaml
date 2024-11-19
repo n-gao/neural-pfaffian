@@ -1,0 +1,5 @@
+systems:
+  molecules:
+    - ["diatomic", { charge1: 7, charge2: 7, distance: 2.02858 }]
+
+  num_walker_per_mol: 4096
