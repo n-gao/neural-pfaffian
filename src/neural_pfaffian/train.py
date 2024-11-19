@@ -83,7 +83,7 @@ def train(
     key, subkey = jax.random.split(key)
     systems = vmc.init_systems(subkey, systems)
     # Initialize batches
-    batches = list(map(Systems.merge, batch(systems, batch_size)))
+    batches = list(map(Systems.merge, Systems.safe_batch(systems, batch_size)))
     key, subkey = jax.random.split(key)
     batch_keys = jax.random.split(subkey, len(batches))
     batches = list(map(vmc.init_systems, batch_keys, batches))
