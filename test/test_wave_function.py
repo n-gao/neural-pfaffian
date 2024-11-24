@@ -20,6 +20,13 @@ def test_fwd_and_bwd(wf_apply, wf_params, systems):
     assert_finite(grad)
 
 
+def test_sign(wf_signed, wf_params, systems):
+    sign, _ = wf_signed(wf_params, systems)
+    assert sign.shape == (systems.n_mols,)
+    assert np.isfinite(sign).all()
+    assert np.isin(sign, [-1, 1]).all()
+
+
 # Run this one in float64
 def test_antisymmetry(wf_signed, wf_params, systems_float64):
     systems = systems_float64
