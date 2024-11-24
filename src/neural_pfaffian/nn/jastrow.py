@@ -48,7 +48,7 @@ class CuspJastrow(ReparamModule, JastrowP):
         result += w_anti * jax.ops.segment_sum(
             -(1 / 2) * a_anti**2 / (a_anti + dists_diff), seg_diff, systems.n_mols
         )
-        return jnp.zeros_like(result), result
+        return jnp.ones_like(result), result
 
 
 JASTROWS = Modules[JastrowP](
