@@ -204,7 +204,6 @@ class Diffusion(ReparamModule):
         inp = jnp.where(edge_spin_mask[:, None], up_inp[nuc_idx], down_inp[nuc_idx])
 
         weights = nn.Dense(self.out_dim, use_bias=False)(elec_nuc_edge)
-        # to_elec = inp * weights
         to_elec = weights * inp
         out_emb += (
             segment_sum(to_elec, systems.elec_nuc_idx[0], systems.n_elec)
@@ -236,8 +235,8 @@ class Moon(nn.Module, EmbeddingP):
             self.edge_rbf,
         )(systems)
 
-        # for _ in range(self.n_layer):
-        #     nuc_emb = Update(self.dim, self.activation)(nuc_emb)
+        for _ in range(self.n_layer):
+            nuc_emb = Update(self.dim, self.activation)(nuc_emb)
         elec_emb = Diffusion(self.dim, self.activation)(
             systems, elec_emb, nuc_emb, elec_nuc_edge, e_normalizer
         )
