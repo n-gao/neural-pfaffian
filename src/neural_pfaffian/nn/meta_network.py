@@ -1,3 +1,4 @@
+import functools
 import math
 from dataclasses import KW_ONLY
 
@@ -109,21 +110,26 @@ class OutputBias(nn.Module):
         if not self.meta.bias:
             return jnp.zeros(shape, dtype=dtype)
 
+        def embed_init(key, shape, dtype=dtype):
+            return jax.nn.initializers.normal(1)(key, shape, dtype) * self.meta.std
+
+        Embed = functools.partial(
+            nn.Embed, features=out_dim, dtype=dtype, embedding_init=embed_init
+        )
+
         match self.meta.param_type:
             case ParamTypes.NUCLEI:
-                bias = nn.Embed(self.n_charges, out_dim, dtype)(systems.flat_charges)
+                bias = Embed(self.n_charges)(systems.flat_charges)
             case ParamTypes.NUCLEI_NUCLEI:
                 idx_i, idx_j = systems.nuc_nuc_idx[:2]
-                s_emb = nn.Embed(self.n_charges, out_dim, dtype)(systems.flat_charges)
-                r_emb = nn.Embed(self.n_charges, out_dim, dtype)(systems.flat_charges)
+                s_emb = Embed(self.n_charges)(systems.flat_charges)
+                r_emb = Embed(self.n_charges)(systems.flat_charges)
                 bias = (s_emb[idx_i] + r_emb[idx_j]) / jnp.sqrt(2)
             case ParamTypes.GLOBAL:
-                bias = nn.Embed(1, out_dim, dtype)(
-                    jnp.zeros((systems.n_mols,), dtype=jnp.int64)
-                )
+                bias = Embed(1)(jnp.zeros((systems.n_mols,), dtype=jnp.int64))
             case _:
                 raise ValueError(f'Unknown param type {self.meta.param_type}')
-        return bias.reshape(-1, *shape) * jnp.asarray(self.meta.std, dtype=dtype)
+        return bias.reshape(-1, *shape)
 
 
 class ParamOut(nn.Module):
@@ -189,7 +195,7 @@ class ParamOut(nn.Module):
             result = result.reshape(-1, *shape)
         # Scale std
         result *= self.param(
-            'std', jax.nn.initializers.constant(self.meta.std, jnp.float32), ()
+            'std', jax.nn.initializers.constant(self.meta.std, jnp.float32), shape
         )
         # Add bias
         result = result + bias / jnp.sqrt(2)

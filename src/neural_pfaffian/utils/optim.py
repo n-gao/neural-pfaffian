@@ -80,7 +80,7 @@ def filter_by_param(name: str, transformations: TransformationConfig):
     def mask(params):
         def _mask(path, tensor):
             try:
-                return name in path[-1].key
+                return name in getattr(path[-1], 'name', getattr(path[-1], 'key', ''))
             except Exception:
                 return False
 

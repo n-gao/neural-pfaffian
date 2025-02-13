@@ -12,9 +12,9 @@ from neural_pfaffian.systems import Systems
 _src_dir = Path(__file__).parent
 
 
-def atomic(charge: int, **kwargs):
+def atomic(symbol: int, **kwargs):
     return Systems.from_pyscf(
-        pyscf.gto.M(atom=[(charge, (0, 0, 0))], unit='bohr', **kwargs)
+        pyscf.gto.M(atom=[(symbol, (0, 0, 0))], unit='bohr', **kwargs)
     )
 
 
