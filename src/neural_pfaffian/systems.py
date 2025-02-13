@@ -384,7 +384,7 @@ class Systems(Sequence['Systems'], PyTreeNode):
                 atom=[
                     (c, np.asarray(pos)) for c, pos in zip(mol.flat_charges, mol.nuclei)
                 ],
-                charge=sum(mol.flat_charges) - mol.n_elec,
+                charge=int(sum(mol.flat_charges) - mol.n_elec),
                 spin=mol.spins[0][0] - mol.spins[0][1],
                 basis=basis,
                 unit='bohr',
@@ -472,8 +472,8 @@ class Systems(Sequence['Systems'], PyTreeNode):
 
     @classmethod
     def from_pyscf(cls, mol: pyscf.gto.Mole) -> Self:
-        nuclei = jnp.array(mol.atom_coords())
-        charges = tuple(mol.atom_charges())
+        nuclei = jnp.array(mol.atom_coords(), dtype=jnp.float32)
+        charges = tuple(int(c) for c in mol.atom_charges())
         spins = mol.nelec
         return cls.create(spins, charges, nuclei)
 

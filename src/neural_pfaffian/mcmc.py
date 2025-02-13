@@ -101,7 +101,7 @@ def make_mh_update(
         ratio = log_prob_new - log_prob
 
         key, subkey = jax.random.split(key)
-        alpha = jnp.log(jax.random.uniform(key, log_prob_new.shape))
+        alpha = jnp.log(jax.random.uniform(subkey, log_prob_new.shape))
         cond = ratio > alpha
         new_electrons = jnp.where(
             jnp.repeat(cond, mol_to_elecs, axis=-1)[..., None], new_electrons, electrons
