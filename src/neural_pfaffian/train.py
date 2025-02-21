@@ -4,7 +4,7 @@ import jax
 import optax
 import tqdm.auto as tqdm
 
-from neural_pfaffian.logging import Logger
+from neural_pfaffian.logger import Logger
 from neural_pfaffian.pretraining import Pretraining
 from neural_pfaffian.systems import Systems, SystemsWithHF
 from neural_pfaffian.utils import batch

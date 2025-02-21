@@ -21,7 +21,7 @@ from neural_pfaffian.nn import (
 from neural_pfaffian.config import DEFAULT_CONFIG
 from neural_pfaffian.clipping import CLIPPINGS
 from neural_pfaffian.dataset import create_systems
-from neural_pfaffian.logging import Logger
+from neural_pfaffian.logger import Logger
 from neural_pfaffian.mcmc import MetroplisHastings
 from neural_pfaffian.preconditioner import PRECONDITIONER
 from neural_pfaffian.train import pretrain, thermalize, train
