@@ -1,6 +1,5 @@
 import logging
 import os
-from pathlib import Path
 
 os.environ['JAX_DEFAULT_DTYPE_BITS'] = '32'
 
@@ -20,6 +19,7 @@ from neural_pfaffian.nn import (
     GeneralizedWaveFunction,
     WaveFunction,
 )
+from neural_pfaffian.config import DEFAULT_CONFIG
 from neural_pfaffian.clipping import CLIPPINGS
 from neural_pfaffian.dataset import create_systems
 from neural_pfaffian.mcmc import MetroplisHastings
@@ -32,9 +32,7 @@ jax.config.update('jax_enable_x64', True)
 jax.config.update('jax_default_matmul_precision', 'float32')
 
 ex = seml.Experiment()
-
-root_dir = Path(__file__).parent
-ex.add_config(str(root_dir / 'config' / 'default.yaml'))
+ex.add_config(DEFAULT_CONFIG)
 
 
 def main(

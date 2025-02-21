@@ -1,0 +1,20 @@
+wave_function:
+  embedding:
+    module: ferminet
+    args:
+      ferminet:
+        activation: tanh
+  envelope:
+    module: full
+  orbitals:
+    module: slater
+  jastrows:
+    - - cusp
+      - {}
+  meta_network:
+    module: meta_gnn
+
+pretraining:
+  epochs: 2000
+  basis: ccpvdz
+  reparam_loss_scale: 0.0

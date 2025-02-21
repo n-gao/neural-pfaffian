@@ -1,0 +1,20 @@
+wave_function:
+  embedding:
+    module: psiformer
+    args:
+      psiformer:
+        activation: tanh
+  envelope:
+    module: full
+  orbitals:
+    module: slater
+  jastrows:
+    - - cusp
+      - {}
+  meta_network:
+    module: null
+
+pretraining:
+  epochs: 2000
+  basis: ccpvdz
+  reparam_loss_scale: 0.0
