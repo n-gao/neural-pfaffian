@@ -200,9 +200,9 @@ if folx is not None:
         materialize_idx,
     ):
         (X,), A = merge(args, extra_args)
-        assert isinstance(
-            A, jax.Array
-        ), 'Laplacian for A being a function of X is not supported'
+        assert isinstance(A, jax.Array), (
+            'Laplacian for A being a function of X is not supported'
+        )
         jac = X.jacobian.dense_array
         result = jnp.einsum('i...ab,...bc,i...dc->...ad', jac, A, jac)
         return result - result.mT
