@@ -47,8 +47,8 @@ class WandbLogger(LoggerAbc):
         return config
 
     def config(self, config: dict[str, Any]):
-        if not wandb.config:
-            wandb.config.update(config)
+        if next(iter(config.keys())) not in self.run.config:
+            self.run.config.update(config)
 
     def checkpoint(self, state: VMCState, systems: Systems):
         raise NotImplementedError
