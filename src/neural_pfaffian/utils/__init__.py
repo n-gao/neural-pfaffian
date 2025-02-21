@@ -1,10 +1,13 @@
 from collections import defaultdict
+import logging
+from pathlib import Path
 from typing import Any, Callable, Generic, Self, Sequence, TypeVar
 
 import jax.numpy as jnp
 import jax.tree_util as jtu
 import numpy as np
 import numpy.typing as npt
+from flax.serialization import from_bytes, to_bytes
 from flax.struct import PyTreeNode
 from jaxtyping import Array, ArrayLike, Float
 
@@ -163,5 +166,38 @@ class Modules(dict[str, type[T]], Generic[T]):
         module = module.lower()
         return self[module](**args[module], **kwargs)
 
-    def init_many(self, modules: Sequence[tuple[str, dict[str, Any]]]) -> tuple[T, ...]:
+    def init_many(
+        self, modules: Sequence[tuple[str, dict[str, Any]]] | dict[str, dict[str, Any]]
+    ) -> tuple[T, ...]:
+        if isinstance(modules, dict):
+            return tuple(self[k.lower()](**kwargs) for k, kwargs in modules.items())
         return tuple(self[module.lower()](**args) for module, args in modules)
+
+    def try_init_many(
+        self, modules: Sequence[tuple[str, dict[str, Any]]] | dict[str, dict[str, Any]]
+    ) -> tuple[T, ...]:
+        result = []
+        if isinstance(modules, dict):
+            for k, kwargs in modules.items():
+                try:
+                    result.append(self[k.lower()](**kwargs))
+                except Exception:
+                    logging.warn(f'Failed to initialize {k}')
+            return tuple(result)
+        for module, args in modules:
+            try:
+                result.append(self[module.lower()](**args))
+            except Exception:
+                logging.warn(f'Failed to initialize {module}')
+        return tuple(result)
+
+
+class SerializeablePyTree(PyTreeNode):
+    serialize = to_bytes
+    deserialize = from_bytes
+
+    def to_file(self, path: str | Path):
+        Path(path).open('wb').write(self.serialize())
+
+    def from_file(self, path: str | Path):
+        return self.deserialize(Path(path).read_bytes())

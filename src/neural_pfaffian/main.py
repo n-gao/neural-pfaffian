@@ -7,7 +7,6 @@ import jax
 import rich.syntax
 import seml
 import yaml
-import wandb
 
 from seml.utils.yaml import YamlDumper
 from neural_pfaffian.nn import (
@@ -22,6 +21,7 @@ from neural_pfaffian.nn import (
 from neural_pfaffian.config import DEFAULT_CONFIG
 from neural_pfaffian.clipping import CLIPPINGS
 from neural_pfaffian.dataset import create_systems
+from neural_pfaffian.logging import Logger
 from neural_pfaffian.mcmc import MetroplisHastings
 from neural_pfaffian.preconditioner import PRECONDITIONER
 from neural_pfaffian.train import pretrain, thermalize, train
@@ -85,34 +85,42 @@ def main(
     state = vmc.init(subkey, systems)
 
     # Init wandb
-    wandb.init(**logging_config['wandb'])
-    wandb.config.update(config)
-    # Pretraining
-    logging.info('Pretraining')
+    logging.info('Initializing logger')
+    logger = Logger(logging_config)
+    logger.config(config)
     key, subkey = jax.random.split(key)
-    state, systems = pretrain(
-        subkey,
-        vmc,
-        state,
-        systems,
-        make_optimizer(pretraining_config['optimizer']),
-        reparam_loss_scale=pretraining_config['reparam_loss_scale'],
-        epochs=pretraining_config['epochs'],
-        batch_size=pretraining_config['batch_size'],
-        basis=pretraining_config['basis'],
-    )
+    if logger.has_checkpoint():
+        logging.info('Loading checkpoint, skipping pretraining')
+        state, systems = logger.load_checkpoint(state, systems)
+    else:
+        # Pretraining
+        logging.info('Pretraining')
+        state, systems = pretrain(
+            subkey,
+            vmc,
+            state,
+            systems,
+            make_optimizer(pretraining_config['optimizer']),
+            reparam_loss_scale=pretraining_config['reparam_loss_scale'],
+            epochs=pretraining_config['epochs'],
+            batch_size=pretraining_config['batch_size'],
+            basis=pretraining_config['basis'],
+            logger=logger,
+        )
 
-    # Thermalizing
-    logging.info('Thermalizing')
-    key, subkey = jax.random.split(key)
-    systems = thermalize(
-        subkey,
-        vmc,
-        state,
-        systems,
-        n_epochs=vmc_config['thermalizing_epochs'],
-        batch_size=vmc_config['batch_size'],
-    )
+        # Thermalizing
+        logging.info('Thermalizing')
+        key, subkey = jax.random.split(key)
+        systems = thermalize(
+            subkey,
+            vmc,
+            state,
+            systems,
+            n_epochs=vmc_config['thermalizing_epochs'],
+            batch_size=vmc_config['batch_size'],
+            logger=logger,
+        )
+        logger.checkpoint(state, systems)
 
     # VMC Training
     logging.info('VMC')
@@ -124,7 +132,9 @@ def main(
         systems,
         epochs=vmc_config['epochs'],
         batch_size=vmc_config['batch_size'],
+        logger=logger,
     )
+    logger.checkpoint(state, systems)
 
     logging.info('Done')
     return

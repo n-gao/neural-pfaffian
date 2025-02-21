@@ -26,7 +26,7 @@ class FixedOrbitals(ReparamModule):
     def __call__(self, systems: Systems, elec_embeddings: Float[Array, 'electrons dim']):
         inp_dim = elec_embeddings.shape[-1]
         W = self.param(
-            'projection',
+            'kernel',
             jax.nn.initializers.normal(1 / jnp.sqrt(inp_dim), dtype=jnp.float32),
             (elec_embeddings.shape[-1], self.num_orbitals * self.determinants),
         )
@@ -51,9 +51,9 @@ class Slater(ReparamModule, AntisymmetrizerP[SlaterOrbitals, None]):
 
     @nn.compact
     def __call__(self, systems: Systems, elec_embeddings: Float[Array, 'electrons dim']):
-        assert (
-            systems.spins_are_identical
-        ), 'Slater requires identical spins for all molecules'
+        assert systems.spins_are_identical, (
+            'Slater requires identical spins for all molecules'
+        )
         n_up, n_down = systems.spins[0]
         n_orb, n_mols = max(n_up, n_down), systems.n_mols
         # Set envelopes output correctly

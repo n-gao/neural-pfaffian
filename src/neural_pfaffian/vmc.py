@@ -16,6 +16,7 @@ from neural_pfaffian.nn.wave_function import (
 )
 from neural_pfaffian.preconditioner import Preconditioner
 from neural_pfaffian.systems import Systems
+from neural_pfaffian.utils import SerializeablePyTree
 from neural_pfaffian.utils.jax_utils import (
     REPLICATE_SHARD,
     distribute_keys,
@@ -40,7 +41,7 @@ OS = TypeVar('OS')
 PS = TypeVar('PS')
 
 
-class VMCState(Generic[PS], PyTreeNode):
+class VMCState(Generic[PS], SerializeablePyTree):
     params: WaveFunctionParameters
     optimizer: optax.OptState
     preconditioner: PS
@@ -143,7 +144,7 @@ class VMC(Generic[PS, O, OS], PyTreeNode):
             E = E_per_mol.mean()
             E_std = (pmean(((e_l - E_per_mol) ** 2).mean(0)) ** 0.5).mean()
             grad_norm = tree_squared_norm(gradient) ** 0.5
-            aux_data = aux_data | dict(E=E, E_std=E_std, grad=grad_norm)
+            aux_data = aux_data | dict(E=E, E_std=E_std, grad=grad_norm, step=state.step)
 
             return (
                 state.replace(

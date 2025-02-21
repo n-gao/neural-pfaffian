@@ -17,11 +17,11 @@ import jax.tree_util as jtu
 import numpy as np
 import numpy.typing as npt
 import pyscf
-from flax.struct import PyTreeNode, field
+from flax.struct import field
 from jaxtyping import Array, ArrayLike, Float, Integer, PyTree
 
 from neural_pfaffian.hf import HFOrbitalFn, make_hf_orbitals
-from neural_pfaffian.utils import adj_idx, merge_slices, unique
+from neural_pfaffian.utils import adj_idx, merge_slices, unique, SerializeablePyTree
 from neural_pfaffian.utils.jax_utils import BATCH_SHARD, REPLICATE_SHARD
 from neural_pfaffian.utils.tree_utils import tree_take
 
@@ -158,7 +158,7 @@ def init_electrons(
 
 
 @functools.total_ordering
-class Systems(Sequence['Systems'], PyTreeNode):
+class Systems(Sequence['Systems'], SerializeablePyTree):
     spins: tuple[Spins, ...] = field(pytree_node=False)
     charges: tuple[Charges, ...] = field(pytree_node=False)
     electrons: Electrons

@@ -3,8 +3,8 @@ import time
 import jax
 import optax
 import tqdm.auto as tqdm
-import wandb
 
+from neural_pfaffian.logging import Logger
 from neural_pfaffian.pretraining import Pretraining
 from neural_pfaffian.systems import Systems, SystemsWithHF
 from neural_pfaffian.utils import batch
@@ -18,6 +18,7 @@ def thermalize(
     systems: Systems,
     n_epochs: int,
     batch_size: int,
+    logger: Logger,
 ):
     batches = list(map(Systems.merge, batch(systems, batch_size)))
     # Initialize batches
@@ -42,6 +43,7 @@ def pretrain(
     epochs: int,
     batch_size: int,
     basis: str,
+    logger: Logger,
 ):
     pretrainer = Pretraining(vmc, optimizer, reparam_loss_scale)
     pre_state = pretrainer.init(state)
@@ -52,7 +54,6 @@ def pretrain(
         key, subkey = jax.random.split(key)
         batches.append(pretrainer.init_systems(subkey, b.with_hf(basis)))
 
-    step = 0
     last_time = time.perf_counter()
     for epoch in tqdm.trange(epochs):
         for i in range(len(batches)):
@@ -63,10 +64,8 @@ def pretrain(
             )
             # Logging
             log_data = jax.tree.map(lambda x: x.item(), log_data)
-            log_data['step'] = step
             log_data['time_step'] = time.perf_counter() - last_time
-            wandb.log({f'pretrain/{k}': v for k, v in log_data.items()})
-            step += 1
+            logger.log(log_data, prefix='pretrain')
             last_time = time.perf_counter()
     return pre_state.vmc_state, Systems.merge(batches).to_systems
 
@@ -78,6 +77,7 @@ def train(
     systems: Systems,
     epochs: int,
     batch_size: int,
+    logger: Logger,
 ):
     # Init systems
     key, subkey = jax.random.split(key)
@@ -88,7 +88,6 @@ def train(
     batch_keys = jax.random.split(subkey, len(batches))
     batches = list(map(vmc.init_systems, batch_keys, batches))
 
-    step = 0
     last_time = time.perf_counter()
     for epoch in tqdm.trange(epochs):
         for i in range(len(batches)):
@@ -97,9 +96,9 @@ def train(
             state, batches[i], log_data = vmc.step(subkey, state, batches[i])
             # Logging
             log_data = jax.tree.map(lambda x: x.item(), log_data)
-            log_data['step'] = step
             log_data['time_step'] = time.perf_counter() - last_time
-            wandb.log({f'train/{k}': v for k, v in log_data.items()})
-            step += 1
+            logger.log(log_data, prefix='train')
             last_time = time.perf_counter()
+        if epoch % 100 == 0:
+            logger.checkpoint(state, Systems.merge(batches))
     return state, Systems.merge(batches)

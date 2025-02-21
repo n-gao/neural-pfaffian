@@ -40,8 +40,16 @@ def _deeperwin_geometries():
         return json.load(inp)
 
 
-def deeperwin_molecule(mol_hash: str, name: str | None = None) -> Systems:
-    geometry = _deeperwin_geometries()[mol_hash]
+def deeperwin_molecule(mol_hash: str | None = None, name: str | None = None) -> Systems:
+    assert mol_hash is not None or name is not None
+    if mol_hash is not None:
+        geometry = _deeperwin_geometries()[mol_hash]
+    else:
+        matches = [
+            g for g in _deeperwin_geometries().values() if g.get('name', '') == name
+        ]
+        assert len(matches) == 1, f'No unique match for {name}'
+        geometry = matches[0]
     charges = tuple(geometry['Z'])
     n_elec = sum(charges) - geometry.get('charge', 0)
     spin = geometry.get('spin', 0)
