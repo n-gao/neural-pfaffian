@@ -55,6 +55,64 @@ class Slater(ReparamModule, AntisymmetrizerP[SlaterOrbitals, None]):
             'Slater requires identical spins for all molecules'
         )
         n_up, n_down = systems.spins[0]
+        n_orb, n_mols = n_up + n_down, systems.n_mols
+        # Set envelopes output correctly
+        # TODO: this is rather inefficient, as we compute the full set of orbitals for each spin
+        # one could optimize this by computing only the necessary orbitals.
+        up = FixedOrbitals(
+            n_orb,
+            self.determinants,
+            self.envelope.copy(pi_init=1.0, keep_distr=False),
+        )(systems, elec_embeddings)
+        down = FixedOrbitals(
+            n_orb,
+            self.determinants,
+            self.envelope.copy(pi_init=1.0, keep_distr=False),
+        )(systems, elec_embeddings)
+
+        up = einops.rearrange(
+            up,
+            '(mol elec) orb det -> mol det elec orb',
+            mol=n_mols,
+        )[..., :n_up, :]
+        down = einops.rearrange(
+            down,
+            '(mol elec) orb det -> mol det elec orb',
+            mol=n_mols,
+        )[..., n_up:, :]
+        return SlaterOrbitals(jnp.concatenate([up, down], axis=-2))
+
+    def to_slog_psi(self, systems: Systems, orbitals: SlaterOrbitals):
+        @jax.vmap  # vmap mols
+        def _to_slog_psi(orbitals: SlaterOrbitals):
+            sign, logpsi = jnp.linalg.slogdet(orbitals.orbitals)
+            logpsi, sign = jax.nn.logsumexp(logpsi, b=sign, return_sign=True)
+            return sign, logpsi
+
+        return _to_slog_psi(orbitals)
+
+    def match_hf_orbitals(
+        self,
+        systems: Systems,
+        hf_orbitals: Sequence[HFOrbitals],  # list of molecules
+        orbitals: SlaterOrbitals,  # grouped by molecules
+        state: Sequence[None],  # list of molecules
+    ):
+        hf_up, hf_down = jtu.tree_map(lambda *x: jnp.stack(x, axis=1), *hf_orbitals)
+        hf_full = hf_to_full(hf_up, hf_down)[..., None, :, :]
+        return ((orbitals.orbitals - hf_full) ** 2).mean(), tuple(state)
+
+    def init_systems(self, key: Array, systems: SystemsWithHF):
+        return systems.replace(cache=tuple([None] * systems.n_mols))
+
+
+class RestrictedSlater(Slater):
+    @nn.compact
+    def __call__(self, systems: Systems, elec_embeddings: Float[Array, 'electrons dim']):
+        assert systems.spins_are_identical, (
+            'Slater requires identical spins for all molecules'
+        )
+        n_up, n_down = systems.spins[0]
         n_orb, n_mols = max(n_up, n_down), systems.n_mols
         # Set envelopes output correctly
         diag = FixedOrbitals(
@@ -86,26 +144,3 @@ class Slater(ReparamModule, AntisymmetrizerP[SlaterOrbitals, None]):
                 axis=-2,
             )
         )
-
-    def to_slog_psi(self, systems: Systems, orbitals: SlaterOrbitals):
-        @jax.vmap  # vmap mols
-        def _to_slog_psi(orbitals: SlaterOrbitals):
-            sign, logpsi = jnp.linalg.slogdet(orbitals.orbitals)
-            logpsi, sign = jax.nn.logsumexp(logpsi, b=sign, return_sign=True)
-            return sign, logpsi
-
-        return _to_slog_psi(orbitals)
-
-    def match_hf_orbitals(
-        self,
-        systems: Systems,
-        hf_orbitals: Sequence[HFOrbitals],  # list of molecules
-        orbitals: SlaterOrbitals,  # grouped by molecules
-        state: Sequence[None],  # list of molecules
-    ):
-        hf_up, hf_down = jtu.tree_map(lambda *x: jnp.stack(x, axis=1), *hf_orbitals)
-        hf_full = hf_to_full(hf_up, hf_down)[..., None, :, :]
-        return ((orbitals.orbitals - hf_full) ** 2).mean(), tuple(state)
-
-    def init_systems(self, key: Array, systems: SystemsWithHF):
-        return systems.replace(cache=tuple([None] * systems.n_mols))
