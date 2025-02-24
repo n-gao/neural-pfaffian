@@ -1,6 +1,7 @@
 from typing import Generic, Protocol, Self, Sequence, TypeVar
 
 import jax
+import jax.numpy as jnp
 import jax.tree_util as jtu
 import numpy as np
 from flax.core import unfreeze
@@ -240,3 +241,22 @@ class GeneralizedWaveFunction(Generic[Orb, S], PyTreeNode):
             ]
         ):
             yield jtu.tree_unflatten(tree_def, tensors)
+
+
+class HFWaveFunction(GeneralizedWaveFunction):
+    # A utility wave function that only computes the HF log amplitude
+    def __init__(self, **kwargs):
+        pass
+
+    def fix_structure(self, params, systems):
+        return self
+
+    def apply(self, params, systems: SystemsWithHF):
+        orbitals = systems.hf_orbitals
+        result = []
+        for up, down in orbitals:
+            _, logdet_up = jnp.linalg.slogdet(up)
+            _, logdet_down = jnp.linalg.slogdet(down)
+            result.append(logdet_up + logdet_down)
+        result = jnp.stack(result)
+        return result[systems.inverse_unique_indices]

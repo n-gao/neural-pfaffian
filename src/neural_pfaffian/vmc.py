@@ -9,7 +9,7 @@ from jaxtyping import Array, Float, Integer
 
 from neural_pfaffian.clipping import Clipping
 from neural_pfaffian.hamiltonian import KineticEnergyOp, make_local_energy
-from neural_pfaffian.mcmc import MetroplisHastings
+from neural_pfaffian.mcmc import MetropolisHastings
 from neural_pfaffian.nn.wave_function import (
     GeneralizedWaveFunction,
     WaveFunctionParameters,
@@ -56,7 +56,7 @@ class VMC(Generic[PS, O, OS], PyTreeNode):
     wave_function: GeneralizedWaveFunction[O, OS] = field(pytree_node=False)
     preconditioner: Preconditioner[PS] = field(pytree_node=False)
     optimizer: optax.GradientTransformation = field(pytree_node=False)
-    sampler: MetroplisHastings = field(pytree_node=False)
+    sampler: MetropolisHastings = field(pytree_node=False)
     clipping: Clipping = field(pytree_node=False)
 
     def init(self, key: Array, systems: Systems):
@@ -144,7 +144,7 @@ class VMC(Generic[PS, O, OS], PyTreeNode):
             E = E_per_mol.mean()
             E_std = (pmean(((e_l - E_per_mol) ** 2).mean(0)) ** 0.5).mean()
             grad_norm = tree_squared_norm(gradient) ** 0.5
-            aux_data = aux_data | dict(E=E, E_std=E_std, grad=grad_norm, step=state.step)
+            aux_data |= dict(E=E, E_std=E_std, grad=grad_norm, step=state.step)
 
             return (
                 state.replace(

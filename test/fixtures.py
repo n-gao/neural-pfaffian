@@ -5,7 +5,7 @@ import optax
 import pytest
 
 from neural_pfaffian.clipping import MedianClipping
-from neural_pfaffian.mcmc import MetroplisHastings
+from neural_pfaffian.mcmc import MetropolisHastings
 from neural_pfaffian.nn.antisymmetrizer.slater import RestrictedSlater
 from neural_pfaffian.nn.embedding import FermiNet, PsiFormer, Moon
 from neural_pfaffian.nn.antisymmetrizer import Pfaffian, Slater
@@ -16,7 +16,7 @@ from neural_pfaffian.nn.meta_network import MetaGNN
 from neural_pfaffian.nn.module import ParamMeta, ParamTypes
 from neural_pfaffian.nn.wave_function import GeneralizedWaveFunction, WaveFunction
 from neural_pfaffian.preconditioner import CG, Identity, Preconditioner, Spring
-from neural_pfaffian.pretraining import Pretraining
+from neural_pfaffian.pretraining import Pretraining, PretrainingDistribution
 from neural_pfaffian.systems import Systems
 from neural_pfaffian.vmc import VMC
 
@@ -364,12 +364,12 @@ def preconditioner(request) -> Preconditioner:
 
 @pytest.fixture
 def mcmc(neural_pfaffian: GeneralizedWaveFunction):
-    return MetroplisHastings(neural_pfaffian, 5, jnp.array(1.0), 2, 0.5, 0.025, 1)
+    return MetropolisHastings(neural_pfaffian, 5, jnp.array(1.0), 2, 0.5, 0.025, 1)
 
 
 @pytest.fixture
 def block_mcmc(neural_pfaffian: GeneralizedWaveFunction):
-    return MetroplisHastings(neural_pfaffian, 5, jnp.array(1.0), 2, 0.5, 0.025, 3)
+    return MetropolisHastings(neural_pfaffian, 5, jnp.array(1.0), 2, 0.5, 0.025, 3)
 
 
 @pytest.fixture(params=['mcmc', 'block_mcmc'])
@@ -420,9 +420,20 @@ def fixed_vmc_state(fixed_vmc: VMC, one_system):
 
 
 @pytest.fixture
-def pretrainer(fixed_vmc, optimizer):
-    pretrainer = Pretraining(fixed_vmc, optimizer, 1e-6)
-    return pretrainer
+def wf_pretrainer(fixed_vmc, optimizer):
+    return Pretraining(
+        fixed_vmc, optimizer, 1e-6, sample_from=PretrainingDistribution.WAVE_FUNCTION
+    )
+
+
+@pytest.fixture
+def hf_pretrainer(fixed_vmc, optimizer):
+    return Pretraining(fixed_vmc, optimizer, 1e-6, sample_from=PretrainingDistribution.HF)
+
+
+@pytest.fixture(params=['wf_pretrainer', 'hf_pretrainer'])
+def pretrainer(request):
+    return request.getfixturevalue(request.param)
 
 
 @pytest.fixture

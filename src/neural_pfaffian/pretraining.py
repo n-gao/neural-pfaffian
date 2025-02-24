@@ -1,3 +1,4 @@
+from enum import Enum
 from typing import Generic, TypeVar
 
 import jax
@@ -8,7 +9,7 @@ from jaxtyping import Array, Float, PyTree
 from scipy.special import factorial2
 
 from neural_pfaffian.nn.module import ParamMeta
-from neural_pfaffian.nn.wave_function import WaveFunctionParameters
+from neural_pfaffian.nn.wave_function import HFWaveFunction, WaveFunctionParameters
 from neural_pfaffian.systems import SystemsWithHF
 from neural_pfaffian.utils.jax_utils import (
     REPLICATE_SHARD,
@@ -23,6 +24,11 @@ from neural_pfaffian.vmc import VMC, VMCState
 PS = TypeVar('PS')
 O = TypeVar('O')
 OS = TypeVar('OS')
+
+
+class PretrainingDistribution(Enum):
+    HF = 'hf'
+    WAVE_FUNCTION = 'wave_function'
 
 
 def reparam_loss(
@@ -63,6 +69,19 @@ class Pretraining(Generic[PS, O, OS], PyTreeNode):
     vmc: VMC[PS, O, OS] = field(pytree_node=False)
     optimizer: optax.GradientTransformation = field(pytree_node=False)
     reparam_loss_scale: float
+    sample_from: PretrainingDistribution = field(pytree_node=False)
+
+    @property
+    def mcmc(self):
+        match PretrainingDistribution(self.sample_from):
+            case PretrainingDistribution.HF:
+                return self.vmc.sampler.replace(
+                    wave_function=HFWaveFunction(), steps=1, blocks=1
+                )
+            case PretrainingDistribution.WAVE_FUNCTION:
+                return self.vmc.sampler
+            case _:
+                raise ValueError(f'Unknown sampler: {self.sample_from}')
 
     def init(self, vmc_state: VMCState[PS]) -> PretrainingState[PS]:
         return PretrainingState(
@@ -91,7 +110,7 @@ class Pretraining(Generic[PS, O, OS], PyTreeNode):
         ) -> tuple[PretrainingState[PS], SystemsWithHF, dict[str, jax.Array]]:
             key = distribute_keys(key)
             key, subkey = jax.random.split(key)
-            systems = self.vmc.sampler(subkey, state.vmc_state.params, systems)
+            systems = self.mcmc(subkey, state.vmc_state.params, systems)
             batched_orbitals = jax.vmap(
                 self.vmc.wave_function.orbitals, in_axes=(None, systems.electron_vmap)
             )

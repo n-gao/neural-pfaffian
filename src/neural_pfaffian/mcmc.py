@@ -139,7 +139,7 @@ def make_mh_update(
 S = TypeVar('S', bound=Systems)
 
 
-class MetroplisHastings(PyTreeNode):
+class MetropolisHastings(PyTreeNode):
     wave_function: GeneralizedWaveFunction
     steps: int = field(pytree_node=False)
     init_width: Width

@@ -22,7 +22,7 @@ from neural_pfaffian.config import DEFAULT_CONFIG
 from neural_pfaffian.clipping import CLIPPINGS
 from neural_pfaffian.dataset import create_systems
 from neural_pfaffian.logger import Logger
-from neural_pfaffian.mcmc import MetroplisHastings
+from neural_pfaffian.mcmc import MetropolisHastings
 from neural_pfaffian.preconditioner import PRECONDITIONER
 from neural_pfaffian.train import pretrain, thermalize, train
 from neural_pfaffian.utils.optim import make_optimizer
@@ -75,7 +75,7 @@ def main(
         **vmc_config['preconditioner'], wave_function=wave_function
     )
     optimizer = make_optimizer(vmc_config['optimizer'])
-    mcmc = MetroplisHastings(wave_function, **vmc_config['mcmc'])
+    mcmc = MetropolisHastings(wave_function, **vmc_config['mcmc'])
     clipping = CLIPPINGS.init(**vmc_config['clipping'])
     vmc = VMC(wave_function, preconditioner, optimizer, mcmc, clipping)
 
@@ -102,6 +102,7 @@ def main(
             systems,
             make_optimizer(pretraining_config['optimizer']),
             reparam_loss_scale=pretraining_config['reparam_loss_scale'],
+            sample_from=pretraining_config['sample_from'],
             epochs=pretraining_config['epochs'],
             batch_size=pretraining_config['batch_size'],
             basis=pretraining_config['basis'],

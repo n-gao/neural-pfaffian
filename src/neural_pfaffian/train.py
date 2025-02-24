@@ -5,7 +5,7 @@ import optax
 import tqdm.auto as tqdm
 
 from neural_pfaffian.logger import Logger
-from neural_pfaffian.pretraining import Pretraining
+from neural_pfaffian.pretraining import Pretraining, PretrainingDistribution
 from neural_pfaffian.systems import Systems, SystemsWithHF
 from neural_pfaffian.utils import batch
 from neural_pfaffian.vmc import VMC, VMCState
@@ -40,12 +40,15 @@ def pretrain(
     systems: Systems,
     optimizer: optax.GradientTransformation,
     reparam_loss_scale: float,
+    sample_from: PretrainingDistribution | str,
     epochs: int,
     batch_size: int,
     basis: str,
     logger: Logger,
 ):
-    pretrainer = Pretraining(vmc, optimizer, reparam_loss_scale)
+    pretrainer = Pretraining(
+        vmc, optimizer, reparam_loss_scale, PretrainingDistribution(sample_from)
+    )
     pre_state = pretrainer.init(state)
 
     # Initialize batches
