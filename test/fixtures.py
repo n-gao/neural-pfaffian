@@ -306,8 +306,10 @@ def out_meta(request):
 
 # Generalized Wave fucntion
 @pytest.fixture
-def generalized_wf(wave_function, meta_gnn, one_system):
-    return GeneralizedWaveFunction.create(wave_function, meta_gnn, one_system)
+def generalized_wf(moon, pfaffian, double_jastrow, meta_gnn, one_system):
+    return GeneralizedWaveFunction.create(
+        WaveFunction(moon, pfaffian, double_jastrow), meta_gnn, one_system
+    )
 
 
 @pytest.fixture
