@@ -56,30 +56,33 @@ class Slater(ReparamModule, AntisymmetrizerP[SlaterOrbitals, None]):
         )
         n_up, n_down = systems.spins[0]
         n_orb, n_mols = n_up + n_down, systems.n_mols
-        # Set envelopes output correctly
+        n_out = n_orb * self.determinants
+        is_up = systems.spin_mask == 0
         # TODO: this is rather inefficient, as we compute the full set of orbitals for each spin
         # one could optimize this by computing only the necessary orbitals.
-        up = FixedOrbitals(
-            n_orb,
-            self.determinants,
-            self.envelope.copy(pi_init=1.0, keep_distr=False),
-        )(systems, elec_embeddings)
-        down = FixedOrbitals(
-            n_orb,
-            self.determinants,
-            self.envelope.copy(pi_init=1.0, keep_distr=False),
-        )(systems, elec_embeddings)
+        env_up = self.envelope.copy(out_dim=n_out, pi_init=1.0, keep_distr=False)(systems)
+        env_down = self.envelope.copy(out_dim=n_out, pi_init=1.0, keep_distr=False)(
+            systems
+        )
+        assert len(env_up) == 1 and len(env_down) == 1
+        env_up = env_up[0][systems.inverse_unique_indices].reshape(systems.n_elec, -1)
+        env_down = env_down[0][systems.inverse_unique_indices].reshape(systems.n_elec, -1)
+        env_up, env_down = env_up[is_up], env_down[~is_up]
+        up = nn.Dense(n_out, use_bias=False)(elec_embeddings[is_up]) * env_up
+        down = nn.Dense(n_out, use_bias=False)(elec_embeddings[~is_up]) * env_down
 
         up = einops.rearrange(
             up,
-            '(mol elec) orb det -> mol det elec orb',
+            '(mol elec) (orb det) -> mol det elec orb',
             mol=n_mols,
-        )[..., :n_up, :]
+            orb=n_orb,
+        )
         down = einops.rearrange(
             down,
-            '(mol elec) orb det -> mol det elec orb',
+            '(mol elec) (orb det) -> mol det elec orb',
             mol=n_mols,
-        )[..., n_up:, :]
+            orb=n_orb,
+        )
         return SlaterOrbitals(jnp.concatenate([up, down], axis=-2))
 
     def to_slog_psi(self, systems: Systems, orbitals: SlaterOrbitals):

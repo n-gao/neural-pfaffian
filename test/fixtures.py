@@ -6,6 +6,7 @@ import pytest
 
 from neural_pfaffian.clipping import MedianClipping
 from neural_pfaffian.mcmc import MetroplisHastings
+from neural_pfaffian.nn.antisymmetrizer.slater import RestrictedSlater
 from neural_pfaffian.nn.embedding import FermiNet, PsiFormer, Moon
 from neural_pfaffian.nn.antisymmetrizer import Pfaffian, Slater
 from neural_pfaffian.nn.embedding.psiformer import AttentionImplementation
@@ -138,7 +139,7 @@ def full_envelope():
 
 @pytest.fixture(scope='function')
 def efficient_envelope():
-    return EfficientEnvelope(8)
+    return EfficientEnvelope(2)
 
 
 @pytest.fixture(params=['full_envelope', 'efficient_envelope'])
@@ -166,7 +167,12 @@ def slater(envelope):
     return Slater(2, envelope)
 
 
-@pytest.fixture(params=['pfaffian'])
+@pytest.fixture
+def restricted_slater(envelope):
+    return RestrictedSlater(2, envelope)
+
+
+@pytest.fixture(params=['pfaffian', 'slater', 'restricted_slater'])
 def orbital_model(request, envelope):
     # envelope must be here since orbitals depend on it
     return request.getfixturevalue(request.param)
@@ -207,6 +213,11 @@ def wave_function(moon, orbital_model, jastrow_models):
 
 @pytest.fixture
 def wf_params(wave_function: WaveFunction, systems: Systems):
+    if (
+        isinstance(wave_function.orbital_module, (Slater, RestrictedSlater))
+        and systems.n_mols > 1
+    ):
+        pytest.skip('Slater requires identical spins for all molecules')
     return wave_function.init(jax.random.key(42), systems)
 
 
