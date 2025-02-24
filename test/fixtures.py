@@ -8,6 +8,7 @@ from neural_pfaffian.clipping import MedianClipping
 from neural_pfaffian.mcmc import MetroplisHastings
 from neural_pfaffian.nn.embedding import FermiNet, PsiFormer, Moon
 from neural_pfaffian.nn.antisymmetrizer import Pfaffian, Slater
+from neural_pfaffian.nn.embedding.psiformer import AttentionImplementation
 from neural_pfaffian.nn.envelope import EfficientEnvelope, FullEnvelope
 from neural_pfaffian.nn.jastrow import CuspJastrow, MLPJastrow
 from neural_pfaffian.nn.meta_network import MetaGNN
@@ -77,13 +78,26 @@ def ferminet():
 
 
 @pytest.fixture
-def psiformer():
+def psiformer_iterative():
     return PsiFormer(
         embedding_dim=32,
         dim=32,
         n_head=4,
         n_layer=2,
         activation=jnp.tanh,
+        attention_implementation=AttentionImplementation.ITERATIVE,
+    )
+
+
+@pytest.fixture
+def psiformer_parallel():
+    return PsiFormer(
+        embedding_dim=32,
+        dim=32,
+        n_head=4,
+        n_layer=2,
+        activation=jnp.tanh,
+        attention_implementation=AttentionImplementation.ITERATIVE,
     )
 
 
@@ -100,7 +114,7 @@ def moon():
     )
 
 
-@pytest.fixture(params=['ferminet', 'psiformer', 'moon'])
+@pytest.fixture(params=['ferminet', 'psiformer_iterative', 'psiformer_parallel', 'moon'])
 def embedding_model(request):
     return request.getfixturevalue(request.param)
 
@@ -337,7 +351,17 @@ def preconditioner(request) -> Preconditioner:
 
 @pytest.fixture
 def mcmc(neural_pfaffian: GeneralizedWaveFunction):
-    return MetroplisHastings(neural_pfaffian, 5, jnp.array(1.0), 2, 0.5, 0.025)
+    return MetroplisHastings(neural_pfaffian, 5, jnp.array(1.0), 2, 0.5, 0.025, 1)
+
+
+@pytest.fixture
+def block_mcmc(neural_pfaffian: GeneralizedWaveFunction):
+    return MetroplisHastings(neural_pfaffian, 5, jnp.array(1.0), 2, 0.5, 0.025, 3)
+
+
+@pytest.fixture(params=['mcmc', 'block_mcmc'])
+def mcmcs(request):
+    return request.getfixturevalue(request.param)
 
 
 @pytest.fixture

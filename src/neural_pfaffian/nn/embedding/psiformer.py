@@ -1,3 +1,4 @@
+from enum import Enum
 import flax.linen as nn
 import jax
 import jax.numpy as jnp
@@ -7,36 +8,67 @@ from jaxtyping import Array, Float
 from neural_pfaffian.nn.ops import segment_softmax
 from neural_pfaffian.nn.utils import Activation, ActivationOrName
 from neural_pfaffian.nn.wave_function import EmbeddingP
-from neural_pfaffian.systems import Systems
+from neural_pfaffian.systems import Systems, chunk_electron
 
 from .ferminet import FermiNetFeatures
 
 SingleStream = Float[Array, 'n_elec single_dim']
 
 
+class AttentionImplementation(Enum):
+    ITERATIVE = 'iterative'
+    PARALLEL = 'parallel'
+
+
+def iterative_attention(
+    Q: SingleStream, K: SingleStream, V: SingleStream, systems: Systems
+):
+    heads, dim = Q.shape[-2:]
+    result = []
+    for q, k, v in zip(
+        systems.group(Q, chunk_electron),
+        systems.group(K, chunk_electron),
+        systems.group(V, chunk_electron),
+    ):
+        A = jnp.einsum('...ahd,...bhd->...abh', q, k) / jnp.sqrt(dim / heads)
+        A = jax.nn.softmax(A, axis=-2)
+        attn = jnp.einsum('...abh,...bhd->...ahd', A, v).reshape(*v.shape[:-2], -1)
+        result.extend(list(attn))
+    return jnp.concatenate([result[i] for i in systems.inverse_unique_indices])
+
+
+def parallel_attention(
+    Q: SingleStream, K: SingleStream, V: SingleStream, systems: Systems
+):
+    e_e_i, e_e_j, _ = systems.elec_elec_idx
+    n, heads, dim = Q.shape
+    A = jnp.einsum('...ahd,...ahd->...ah', Q[e_e_i], K[e_e_j]) / jnp.sqrt(dim / heads)
+    A = segment_softmax(A, e_e_j, n)
+    attn = jax.ops.segment_sum(jnp.einsum('...ah,...ahd->...ahd', A, V[e_e_j]), e_e_i, n)
+    return attn.reshape(n, -1)
+
+
 class Attention(nn.Module):
     dim: int
     heads: int
     activation: ActivationOrName
+    attention_implementation: AttentionImplementation
 
     @nn.compact
     def __call__(self, systems: Systems, h_one: SingleStream):
-        n = h_one.shape[0]
-        e_e_i, e_e_j, _ = systems.elec_elec_idx
-
         Q, K, V = jnp.split(nn.Dense(self.dim * 3)(h_one), 3, axis=-1)
         Q, K, V = jtu.tree_map(
             lambda x: x.reshape(*x.shape[:-1], self.heads, -1), (Q, K, V)
         )
-        A = jnp.einsum('...ahd,...ahd->...ah', Q[e_e_i], K[e_e_j]) / jnp.sqrt(
-            self.dim / self.heads
-        )
-        A = segment_softmax(A, e_e_j, n)
-        attn = jax.ops.segment_sum(
-            jnp.einsum('...ah,...ahd->...ahd', A, V[e_e_j]), e_e_i, n
-        )
-        attn = attn.reshape(n, -1)
-
+        match AttentionImplementation(self.attention_implementation):
+            case AttentionImplementation.ITERATIVE:
+                attn = iterative_attention(Q, K, V, systems)
+            case AttentionImplementation.PARALLEL:
+                attn = parallel_attention(Q, K, V, systems)
+            case _:
+                raise ValueError(
+                    f'Unknown attention implementation: {self.attention_implementation}'
+                )
         h_one += attn
         h_one = nn.LayerNorm()(h_one)
 
@@ -53,6 +85,7 @@ class PsiFormer(nn.Module, EmbeddingP):
     n_head: int
     n_layer: int
     activation: ActivationOrName
+    attention_implementation: AttentionImplementation
 
     @nn.compact
     def __call__(self, systems: Systems):
@@ -61,5 +94,7 @@ class PsiFormer(nn.Module, EmbeddingP):
         # Spin embedding
         h_one += nn.Embed(2, self.embedding_dim)(systems.spin_mask)
         for _ in range(self.n_layer):
-            h_one = Attention(self.dim, self.n_head, self.activation)(systems, h_one)
+            h_one = Attention(
+                self.dim, self.n_head, self.activation, self.attention_implementation
+            )(systems, h_one)
         return h_one

@@ -4,6 +4,7 @@ wave_function:
     args:
       psiformer:
         activation: tanh
+        attention_implementation: iterative
   envelope:
     module: full
   orbitals:

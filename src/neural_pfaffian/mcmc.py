@@ -82,21 +82,44 @@ def make_mh_update(
     logprob_fn: Callable[[Electrons], LogDensity],
     width: Width,
     elec_per_mol: Sequence[int],
+    blocks: int,
 ):
     mol_to_elecs = np.asarray(elec_per_mol)
+    updates_per_mol = np.ceil(np.array(elec_per_mol) / blocks).astype(int)
+    n_updates = sum(updates_per_mol)
+    update_mask = np.arange(len(elec_per_mol)).repeat(updates_per_mol)
+    update_widths = jnp.asarray(width)[update_mask][:, None]
+    # Create index tensor where by default all indices are out of bounds
+    out_of_bounds_idx = sum(elec_per_mol)
+    update_idx = np.full((blocks, n_updates), dtype=int, fill_value=out_of_bounds_idx)
+    # Fill in the indices for each block
+    for block in range(blocks):
+        for elec_offset, elecs, update_offset, updates in zip(
+            np.cumulative_sum(elec_per_mol, include_initial=True),
+            elec_per_mol,
+            np.cumulative_sum(updates_per_mol, include_initial=True),
+            updates_per_mol,
+            strict=False,  # the last elements of the cumulative sum are not used
+        ):
+            idx = np.arange(block * updates, block * updates + updates)
+            idx = np.where(idx < elecs, idx, out_of_bounds_idx)
+            update_idx[block, update_offset : update_offset + updates] = elec_offset + idx
+    update_idx = jnp.asarray(update_idx)
 
     def mh_update(
+        i: Integer[Array, ''],
         key: jax.Array,
         electrons: Electrons,
         log_prob: LogDensity,
         num_accepts: Integer[Array, ''],
     ):
+        block_idx = i % blocks
         key, subkey = jax.random.split(key)
-        eps = (
-            jax.random.normal(subkey, electrons.shape, electrons.dtype)
-            * jnp.repeat(width, mol_to_elecs)[:, None]
+        eps = jax.random.normal(
+            subkey, (*electrons.shape[:-2], n_updates, 3), electrons.dtype
         )
-        new_electrons = electrons + eps
+        eps *= update_widths
+        new_electrons = electrons.at[..., update_idx[block_idx], :].add(eps, mode='drop')
         log_prob_new = logprob_fn(new_electrons)
         ratio = log_prob_new - log_prob
 
@@ -123,6 +146,7 @@ class MetroplisHastings(PyTreeNode):
     window_size: int = field(pytree_node=False)
     target_pmove: float
     error: float
+    blocks: int
 
     def init_systems(self, key: Array, systems: S) -> S:
         if _WIDTH_KEY not in systems.mol_data:
@@ -143,14 +167,14 @@ class MetroplisHastings(PyTreeNode):
         def logprob_fn(electrons: Electrons) -> LogDensity:
             return 2 * wf_fixed.apply(params, systems.replace(electrons=electrons))
 
-        mh_update = make_mh_update(logprob_fn, width, systems.n_elec_by_mol)
+        mh_update = make_mh_update(logprob_fn, width, systems.n_elec_by_mol, self.blocks)
         log_probs = logprob_fn(systems.electrons)
         num_accepts = jnp.zeros(log_probs.shape, dtype=jnp.int32)
 
         key, electrons, _, num_accepts = jax.lax.scan(
-            lambda x, _: (mh_update(*x), None),
+            lambda x, i: (mh_update(i, *x), None),
             (key, systems.electrons, log_probs, num_accepts),
-            jnp.arange(self.steps),
+            jnp.arange(self.steps * self.blocks),
         )[0]
 
         pmove = jnp.sum(num_accepts, axis=0) / (self.steps * batch_size)

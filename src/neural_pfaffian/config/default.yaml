@@ -19,6 +19,7 @@ wave_function:
         n_head: 4
         n_layer: 4
         activation: silu
+        attention_implementation: parallel
       ferminet:
         embedding_dim: 256
         hidden_dims:
@@ -91,6 +92,7 @@ vmc:
     window_size: 20
     target_pmove: 0.525
     error: 0.025
+    blocks: 1
 
   preconditioner:
     module: spring # ['identity', 'cg', 'spring']
