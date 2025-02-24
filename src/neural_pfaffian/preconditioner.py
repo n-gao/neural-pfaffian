@@ -249,17 +249,21 @@ class Spring(PyTreeNode, Preconditioner[SpringState]):
         epsilon_tilde = pgather(epsilon_tilde, axis=0, tiled=True)
         epsilon_tilde = epsilon_tilde.astype(self.dtype).reshape(-1)
 
-        T = JT_J + state.damping * jnp.eye(N, dtype=JT_J.dtype) + 1 / N
-        # mathematically does nothing but may have better numerics
-        T = (T + T.T) / 2
+        sigma, U = jnp.linalg.eigh(JT_J, symmetrize_input=True)
+        # Ensure that condition number is at worst 1e10
+        damping = jnp.maximum(sigma[-1] / 1e10, state.damping)
+        sigma += damping
 
-        x = jax.scipy.linalg.solve(T, epsilon_tilde, assume_a='pos', check_finite=False)
-        x = x.reshape(n_dev, -1)[pidx()]
+        x = U.reshape(n_dev, -1, U.shape[1])[pidx()] @ ((U.T @ epsilon_tilde) / sigma)
         preconditioned = vjp(x)
         natgrad = tree_add(preconditioned, decayed_last_grad)
         # Convert back to the original dtype
         update = jtu.tree_map(jax.lax.convert_element_type, natgrad, out_dtypes)
-        return update, state.replace(last_grad=natgrad), {}
+        aux_data = {
+            'spring/cond_nr10': jnp.log10(sigma[-1]) - jnp.log10(sigma[0]),
+            'spring/grad_norm': tree_squared_norm(dE_dlogpsi) ** 0.5,
+        }
+        return update, state.replace(last_grad=natgrad), aux_data
 
 
 PRECONDITIONER = Modules[Preconditioner](

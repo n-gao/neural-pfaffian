@@ -200,8 +200,8 @@ def jastrow_models(request):
 
 # Wave Function
 @pytest.fixture
-def wave_function(embedding_model, orbital_model, jastrow_models):
-    wf = WaveFunction(embedding_model, orbital_model, jastrow_models)
+def wave_function(moon, orbital_model, jastrow_models):
+    wf = WaveFunction(moon, orbital_model, jastrow_models)
     return wf
 
 

@@ -34,7 +34,7 @@ def make_hf_orbitals(mol: pyscf.gto.Mole) -> HFOrbitalFn:
             cpu_atomic_orbitals,
             jax.ShapeDtypeStruct((*electrons.shape[:-1], mol.nao), electrons.dtype),
             electrons,
-            vectorized=True,
+            vmap_method='expand_dims',
         )
         mo_values = jnp.array(ao_orbitals @ coeffs, electrons.dtype)
 
