@@ -27,7 +27,7 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [tool.pytest.ini_options]
-addopts = "-n auto --durations=0 --dist worksteal -v"
+addopts = "-n auto --durations=0 --dist worksteal -v --color=yes"
 
 [tool.pytest_env]
 JAX_PLATFORMS = "cpu"
