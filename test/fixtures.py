@@ -390,10 +390,10 @@ def optimizer():
 
 
 @pytest.fixture(scope='module')
-def vmc(neural_pfaffian, preconditioner, mcmc, optimizer):
+def vmc(neural_pfaffian, identity_preconditioner, mcmc, optimizer):
     return VMC(
         wave_function=neural_pfaffian,
-        preconditioner=preconditioner,
+        preconditioner=identity_preconditioner,
         optimizer=optimizer,
         sampler=mcmc,
         clipping=MedianClipping(5),
