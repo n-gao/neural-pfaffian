@@ -12,7 +12,7 @@ dependencies = [
     "numpy>=2.1.2",
     "optax>=0.2.4",
     "pyscf>=2.7.0",
-    "seml>=0.5.4",
+    "seml[ssh_forward]>=0.5.4",
     "tqdm>=4.66.5",
     "wandb>=0.18.5",
     "nvidia-cublas-cu12==12.6.1.4",
