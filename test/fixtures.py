@@ -140,7 +140,7 @@ def full_envelope():
     return FullEnvelope()
 
 
-@pytest.fixture(scope='module')
+@pytest.fixture(scope='session')
 def efficient_envelope():
     return EfficientEnvelope(2)
 
@@ -165,13 +165,11 @@ def pfaffian(envelope):
     )
 
 
-@pytest.mark.xdist_group('slater')
 @pytest.fixture(scope='module')
 def slater(envelope):
     return Slater(2, envelope)
 
 
-@pytest.mark.xdist_group('restricted_slater')
 @pytest.fixture(scope='module')
 def restricted_slater(envelope):
     return RestrictedSlater(2, envelope)
@@ -188,17 +186,17 @@ def no_jastrow():
     return []
 
 
-@pytest.fixture(scope='module')
+@pytest.fixture(scope='session')
 def mlp_jastrow():
     return [MLPJastrow([8, 4], jnp.tanh)]
 
 
-@pytest.fixture(scope='module')
+@pytest.fixture(scope='session')
 def cusp_jastrow():
     return [CuspJastrow()]
 
 
-@pytest.fixture(scope='module')
+@pytest.fixture(scope='session')
 def double_jastrow(mlp_jastrow, cusp_jastrow):
     return mlp_jastrow + cusp_jastrow
 
@@ -239,7 +237,7 @@ def wf_apply(wave_function: WaveFunction):
 
 
 # MetaGNN
-@pytest.fixture(scope='module')
+@pytest.fixture(scope='session')
 def meta_gnn():
     return MetaGNN(
         out_structure=None,
@@ -348,19 +346,16 @@ def neural_pfaffian_params(neural_pfaffian: GeneralizedWaveFunction, one_system:
     return neural_pfaffian.init(jax.random.key(42), one_system)
 
 
-@pytest.mark.xdist_group('identity')
 @pytest.fixture(scope='module')
 def identity_preconditioner(neural_pfaffian: GeneralizedWaveFunction):
     return Identity(neural_pfaffian)
 
 
-@pytest.mark.xdist_group('spring')
 @pytest.fixture(scope='module')
 def spring_preconditioner(neural_pfaffian: GeneralizedWaveFunction):
     return Spring(neural_pfaffian, 1e-3, 0.99, jnp.float64)
 
 
-@pytest.mark.xdist_group('cg')
 @pytest.fixture(scope='module')
 def cg_preconditioner(neural_pfaffian: GeneralizedWaveFunction):
     return CG(neural_pfaffian, 1e-3, 0.99, 10)
