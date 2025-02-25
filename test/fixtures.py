@@ -22,7 +22,7 @@ from neural_pfaffian.vmc import VMC
 
 
 # Systems
-@pytest.fixture
+@pytest.fixture(scope='session')
 def one_system():
     return Systems(
         spins=((2, 1),),
@@ -33,7 +33,7 @@ def one_system():
     )
 
 
-@pytest.fixture
+@pytest.fixture(scope='session')
 def two_systems():
     return Systems(
         spins=((2, 2), (3, 3)),
@@ -44,12 +44,12 @@ def two_systems():
     )
 
 
-@pytest.fixture(params=['one_system', 'two_systems'])
+@pytest.fixture(scope='session', params=['one_system', 'two_systems'])
 def systems(request):
     return request.getfixturevalue(request.param)
 
 
-@pytest.fixture
+@pytest.fixture(scope='session')
 def batched_systems(systems):
     return systems.replace(
         electrons=jax.random.normal(
@@ -60,7 +60,7 @@ def batched_systems(systems):
     )
 
 
-@pytest.fixture
+@pytest.fixture(scope='session')
 def systems_float64(systems):
     return systems.replace(
         electrons=systems.electrons.astype(jnp.float64),
@@ -69,7 +69,7 @@ def systems_float64(systems):
 
 
 # Embedding
-@pytest.fixture
+@pytest.fixture(scope='module')
 def ferminet():
     return FermiNet(
         embedding_dim=16,
@@ -78,7 +78,7 @@ def ferminet():
     )
 
 
-@pytest.fixture
+@pytest.fixture(scope='module')
 def psiformer_iterative():
     return PsiFormer(
         embedding_dim=32,
@@ -90,7 +90,7 @@ def psiformer_iterative():
     )
 
 
-@pytest.fixture
+@pytest.fixture(scope='module')
 def psiformer_parallel():
     return PsiFormer(
         embedding_dim=32,
@@ -102,7 +102,7 @@ def psiformer_parallel():
     )
 
 
-@pytest.fixture
+@pytest.fixture(scope='session')
 def moon():
     return Moon(
         embedding_dim=32,
@@ -115,40 +115,43 @@ def moon():
     )
 
 
-@pytest.fixture(params=['ferminet', 'psiformer_iterative', 'psiformer_parallel', 'moon'])
+@pytest.fixture(
+    scope='module',
+    params=['ferminet', 'psiformer_iterative', 'psiformer_parallel', 'moon'],
+)
 def embedding_model(request):
     return request.getfixturevalue(request.param)
 
 
-@pytest.fixture
+@pytest.fixture(scope='module')
 def embedding_params(embedding_model: nn.Module, systems: Systems):
     params = embedding_model.lazy_init(jax.random.key(42), systems)
     return params
 
 
-@pytest.fixture
+@pytest.fixture(scope='module')
 def embedding_fwdpass(embedding_model: nn.Module):
     return jax.jit(embedding_model.apply)
 
 
 # Enveloeps
-@pytest.fixture
+@pytest.fixture(scope='module')
 def full_envelope():
     return FullEnvelope()
 
 
-@pytest.fixture(scope='function')
+@pytest.fixture(scope='module')
 def efficient_envelope():
     return EfficientEnvelope(2)
 
 
-@pytest.fixture(params=['full_envelope', 'efficient_envelope'])
+@pytest.fixture(scope='module', params=['full_envelope', 'efficient_envelope'])
 def envelope(request):
     return request.getfixturevalue(request.param)
 
 
 # Orbitals
-@pytest.fixture
+@pytest.fixture(scope='module')
 def pfaffian(envelope):
     return Pfaffian(
         2,
@@ -162,56 +165,60 @@ def pfaffian(envelope):
     )
 
 
-@pytest.fixture
+@pytest.mark.xdist_group('slater')
+@pytest.fixture(scope='module')
 def slater(envelope):
     return Slater(2, envelope)
 
 
-@pytest.fixture
+@pytest.mark.xdist_group('restricted_slater')
+@pytest.fixture(scope='module')
 def restricted_slater(envelope):
     return RestrictedSlater(2, envelope)
 
 
-@pytest.fixture(params=['pfaffian', 'slater', 'restricted_slater'])
+@pytest.fixture(scope='module', params=['pfaffian', 'slater', 'restricted_slater'])
 def orbital_model(request, envelope):
     # envelope must be here since orbitals depend on it
     return request.getfixturevalue(request.param)
 
 
-@pytest.fixture
+@pytest.fixture(scope='module')
 def no_jastrow():
     return []
 
 
-@pytest.fixture
+@pytest.fixture(scope='module')
 def mlp_jastrow():
     return [MLPJastrow([8, 4], jnp.tanh)]
 
 
-@pytest.fixture
+@pytest.fixture(scope='module')
 def cusp_jastrow():
     return [CuspJastrow()]
 
 
-@pytest.fixture
+@pytest.fixture(scope='module')
 def double_jastrow(mlp_jastrow, cusp_jastrow):
     return mlp_jastrow + cusp_jastrow
 
 
 # Jastrows
-@pytest.fixture(params=['no_jastrow', 'mlp_jastrow', 'cusp_jastrow', 'double_jastrow'])
+@pytest.fixture(
+    scope='module', params=['no_jastrow', 'mlp_jastrow', 'cusp_jastrow', 'double_jastrow']
+)
 def jastrow_models(request):
     return request.getfixturevalue(request.param)
 
 
 # Wave Function
-@pytest.fixture
+@pytest.fixture(scope='module')
 def wave_function(moon, orbital_model, jastrow_models):
     wf = WaveFunction(moon, orbital_model, jastrow_models)
     return wf
 
 
-@pytest.fixture
+@pytest.fixture(scope='module')
 def wf_params(wave_function: WaveFunction, systems: Systems):
     if (
         isinstance(wave_function.orbital_module, (Slater, RestrictedSlater))
@@ -221,18 +228,18 @@ def wf_params(wave_function: WaveFunction, systems: Systems):
     return wave_function.init(jax.random.key(42), systems)
 
 
-@pytest.fixture
+@pytest.fixture(scope='module')
 def wf_signed(wave_function: WaveFunction):
     return jax.jit(wave_function.signed)
 
 
-@pytest.fixture
+@pytest.fixture(scope='module')
 def wf_apply(wave_function: WaveFunction):
     return jax.jit(wave_function.apply)
 
 
 # MetaGNN
-@pytest.fixture
+@pytest.fixture(scope='module')
 def meta_gnn():
     return MetaGNN(
         out_structure=None,
@@ -245,7 +252,7 @@ def meta_gnn():
     )
 
 
-@pytest.fixture
+@pytest.fixture(scope='module')
 def global_meta():
     return ParamMeta(
         param_type=ParamTypes.GLOBAL,
@@ -258,7 +265,7 @@ def global_meta():
     )
 
 
-@pytest.fixture
+@pytest.fixture(scope='module')
 def nuclei_meta():
     return ParamMeta(
         param_type=ParamTypes.NUCLEI,
@@ -271,7 +278,7 @@ def nuclei_meta():
     )
 
 
-@pytest.fixture
+@pytest.fixture(scope='module')
 def nuclei_nuclei_meta():
     return ParamMeta(
         param_type=ParamTypes.NUCLEI_NUCLEI,
@@ -284,7 +291,7 @@ def nuclei_nuclei_meta():
     )
 
 
-@pytest.fixture
+@pytest.fixture(scope='module')
 def chunked_meta():
     return ParamMeta(
         param_type=ParamTypes.NUCLEI,
@@ -298,27 +305,28 @@ def chunked_meta():
 
 
 @pytest.fixture(
-    params=['global_meta', 'nuclei_meta', 'nuclei_nuclei_meta', 'chunked_meta']
+    scope='module',
+    params=['global_meta', 'nuclei_meta', 'nuclei_nuclei_meta', 'chunked_meta'],
 )
 def out_meta(request):
     return request.getfixturevalue(request.param)
 
 
 # Generalized Wave fucntion
-@pytest.fixture
+@pytest.fixture(scope='module')
 def generalized_wf(moon, pfaffian, double_jastrow, meta_gnn, one_system):
     return GeneralizedWaveFunction.create(
         WaveFunction(moon, pfaffian, double_jastrow), meta_gnn, one_system
     )
 
 
-@pytest.fixture
+@pytest.fixture(scope='module')
 def generalized_wf_params(generalized_wf: GeneralizedWaveFunction, one_system: Systems):
     return generalized_wf.init(jax.random.key(42), one_system)
 
 
 # Example WF
-@pytest.fixture
+@pytest.fixture(scope='session')
 def neural_pfaffian(moon, double_jastrow, efficient_envelope, meta_gnn, one_system):
     pfaffian = Pfaffian(
         3,
@@ -335,54 +343,58 @@ def neural_pfaffian(moon, double_jastrow, efficient_envelope, meta_gnn, one_syst
     )
 
 
-@pytest.fixture
+@pytest.fixture(scope='session')
 def neural_pfaffian_params(neural_pfaffian: GeneralizedWaveFunction, one_system: Systems):
     return neural_pfaffian.init(jax.random.key(42), one_system)
 
 
-@pytest.fixture
+@pytest.mark.xdist_group('identity')
+@pytest.fixture(scope='module')
 def identity_preconditioner(neural_pfaffian: GeneralizedWaveFunction):
     return Identity(neural_pfaffian)
 
 
-@pytest.fixture
+@pytest.mark.xdist_group('spring')
+@pytest.fixture(scope='module')
 def spring_preconditioner(neural_pfaffian: GeneralizedWaveFunction):
     return Spring(neural_pfaffian, 1e-3, 0.99, jnp.float64)
 
 
-@pytest.fixture
+@pytest.mark.xdist_group('cg')
+@pytest.fixture(scope='module')
 def cg_preconditioner(neural_pfaffian: GeneralizedWaveFunction):
     return CG(neural_pfaffian, 1e-3, 0.99, 10)
 
 
 @pytest.fixture(
-    params=['identity_preconditioner', 'spring_preconditioner', 'cg_preconditioner']
+    scope='module',
+    params=['identity_preconditioner', 'spring_preconditioner', 'cg_preconditioner'],
 )
 def preconditioner(request) -> Preconditioner:
     return request.getfixturevalue(request.param)
 
 
-@pytest.fixture
+@pytest.fixture(scope='module')
 def mcmc(neural_pfaffian: GeneralizedWaveFunction):
     return MetropolisHastings(neural_pfaffian, 5, jnp.array(1.0), 2, 0.5, 0.025, 1)
 
 
-@pytest.fixture
+@pytest.fixture(scope='module')
 def block_mcmc(neural_pfaffian: GeneralizedWaveFunction):
     return MetropolisHastings(neural_pfaffian, 5, jnp.array(1.0), 2, 0.5, 0.025, 3)
 
 
-@pytest.fixture(params=['mcmc', 'block_mcmc'])
+@pytest.fixture(scope='module', params=['mcmc', 'block_mcmc'])
 def mcmcs(request):
     return request.getfixturevalue(request.param)
 
 
-@pytest.fixture
+@pytest.fixture(scope='module')
 def optimizer():
     return optax.adam(1e-4)
 
 
-@pytest.fixture
+@pytest.fixture(scope='module')
 def vmc(neural_pfaffian, preconditioner, mcmc, optimizer):
     return VMC(
         wave_function=neural_pfaffian,
@@ -393,17 +405,17 @@ def vmc(neural_pfaffian, preconditioner, mcmc, optimizer):
     )
 
 
-@pytest.fixture
+@pytest.fixture(scope='module')
 def vmc_state(vmc: VMC, one_system):
     return vmc.init(jax.random.key(0), one_system)
 
 
-@pytest.fixture
+@pytest.fixture(scope='module')
 def vmc_systems(vmc: VMC, batched_systems: Systems):
     return vmc.init_systems(jax.random.key(7), batched_systems)
 
 
-@pytest.fixture
+@pytest.fixture(scope='module')
 def fixed_vmc(neural_pfaffian, spring_preconditioner, mcmc, optimizer):
     return VMC(
         wave_function=neural_pfaffian,
@@ -414,38 +426,38 @@ def fixed_vmc(neural_pfaffian, spring_preconditioner, mcmc, optimizer):
     )
 
 
-@pytest.fixture
+@pytest.fixture(scope='module')
 def fixed_vmc_state(fixed_vmc: VMC, one_system):
     return fixed_vmc.init(jax.random.key(0), one_system)
 
 
-@pytest.fixture
+@pytest.fixture(scope='module')
 def wf_pretrainer(fixed_vmc, optimizer):
     return Pretraining(
         fixed_vmc, optimizer, 1e-6, sample_from=PretrainingDistribution.WAVE_FUNCTION
     )
 
 
-@pytest.fixture
+@pytest.fixture(scope='module')
 def hf_pretrainer(fixed_vmc, optimizer):
     return Pretraining(fixed_vmc, optimizer, 1e-6, sample_from=PretrainingDistribution.HF)
 
 
-@pytest.fixture(params=['wf_pretrainer', 'hf_pretrainer'])
+@pytest.fixture(scope='module', params=['wf_pretrainer', 'hf_pretrainer'])
 def pretrainer(request):
     return request.getfixturevalue(request.param)
 
 
-@pytest.fixture
+@pytest.fixture(scope='module')
 def systems_with_hf(batched_systems):
     return batched_systems.with_hf('sto-6g')
 
 
-@pytest.fixture
+@pytest.fixture(scope='module')
 def pretrainer_state(pretrainer, fixed_vmc_state):
     return pretrainer.init(fixed_vmc_state)
 
 
-@pytest.fixture
+@pytest.fixture(scope='module')
 def pretraining_systems(pretrainer, systems_with_hf):
     return pretrainer.init_systems(jax.random.key(8), systems_with_hf)

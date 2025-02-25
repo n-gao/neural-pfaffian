@@ -34,8 +34,12 @@ class PretrainingDistribution(Enum):
 def reparam_loss(
     meta: PyTree[ParamMeta],
     reparams: PyTree[Float[Array, '...']],
+    loss_scale: float,
     max_moment: int,
 ):
+    if loss_scale <= 0:
+        return 0
+
     p = np.arange(1, max_moment + 1)
     # all odd moments are 0
     # https://en.wikipedia.org/wiki/Normal_distribution#Moments:~:text=standard%20normal%20distribution.-,Moments,-See%20also%3A
@@ -51,7 +55,7 @@ def reparam_loss(
         observed_moments = x.mean(axis=tuple(range(x.ndim - 1)))
         return ((target_moments - observed_moments) ** 2).sum()
 
-    return tree_sum(jax.tree.map(loss, reparams, meta))
+    return loss_scale * tree_sum(jax.tree.map(loss, reparams, meta))
 
 
 class PretrainingState(Generic[PS], PyTreeNode):
@@ -68,7 +72,7 @@ class PretrainingState(Generic[PS], PyTreeNode):
 class Pretraining(Generic[PS, O, OS], PyTreeNode):
     vmc: VMC[PS, O, OS] = field(pytree_node=False)
     optimizer: optax.GradientTransformation = field(pytree_node=False)
-    reparam_loss_scale: float
+    reparam_loss_scale: float = field(pytree_node=False)
     sample_from: PretrainingDistribution = field(pytree_node=False)
 
     @property
@@ -123,9 +127,10 @@ class Pretraining(Generic[PS, O, OS], PyTreeNode):
                         systems, systems.hf_orbitals, orbitals, systems.cache
                     )
                 )
-                reparam_loss_val = self.reparam_loss_scale * reparam_loss(
+                reparam_loss_val = reparam_loss(
                     self.vmc.wave_function.reparam_meta,
                     self.vmc.wave_function.reparams(params, systems),
+                    self.reparam_loss_scale,
                     4,
                 )
 
