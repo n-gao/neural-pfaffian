@@ -11,8 +11,8 @@ from neural_pfaffian.systems import SystemsWithHF, chunk_electron
 def test_jax_orbitals(systems):
     mols = systems.pyscf_molecules('aug-ccpvtz')
     for m, elecs in zip(mols, systems.group(systems.electrons, chunk_electron)):
-        pyscf_fn = make_hf_orbitals(m, AOImplementation.PYSCF)
-        jax_fn = make_hf_orbitals(m, AOImplementation.JAX)
+        pyscf_fn = jax.jit(make_hf_orbitals(m, AOImplementation.PYSCF))
+        jax_fn = jax.jit(make_hf_orbitals(m, AOImplementation.JAX))
         pyscf_up, pyscf_down = pyscf_fn(elecs)
         jax_up, jax_down = jax_fn(elecs)
         assert_finite(jax_up)
