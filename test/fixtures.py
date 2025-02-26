@@ -1,3 +1,4 @@
+import gc
 import flax.linen as nn
 import jax
 import jax.numpy as jnp
@@ -19,6 +20,16 @@ from neural_pfaffian.preconditioner import CG, Identity, Preconditioner, Spring
 from neural_pfaffian.pretraining import Pretraining, PretrainingDistribution
 from neural_pfaffian.systems import Systems
 from neural_pfaffian.vmc import VMC
+
+
+@pytest.fixture(autouse=True, scope='module')
+def clear_cache():
+    # Ensure that before and after every module we clear JAX's caches
+    jax.clear_caches()
+    gc.collect()
+    yield
+    jax.clear_caches()
+    gc.collect()
 
 
 # Systems
