@@ -150,7 +150,7 @@ def envelope(request):
     return request.getfixturevalue(request.param)
 
 
-# Orbitals
+# Antisymmetrizer
 @pytest.fixture(scope='module')
 def pfaffian(envelope):
     return Pfaffian(
@@ -176,7 +176,40 @@ def restricted_slater(envelope):
 
 
 @pytest.fixture(scope='module', params=['pfaffian', 'slater', 'restricted_slater'])
-def orbital_model(request, envelope):
+def antisymmetrizer(request, envelope):
+    # envelope must be here since the antisymmetrizer depend on it
+    return request.getfixturevalue(request.param)
+
+
+@pytest.fixture(scope='session')
+def singular_pfaffian(efficient_envelope):
+    return Pfaffian(
+        2,
+        {'1': 2, '2': 2, '3': 5, '4': 5, '5': 5, '6': 5, '7': 5, '8': 5, '9': 5, '10': 5},
+        efficient_envelope,
+        10,
+        0.1,
+        1.0,
+        1.0,
+        0.99,
+    )
+
+
+@pytest.fixture(scope='module')
+def singular_slater(efficient_envelope):
+    return Slater(2, efficient_envelope)
+
+
+@pytest.fixture(scope='module')
+def singular_restricted_slater(efficient_envelope):
+    return RestrictedSlater(2, efficient_envelope)
+
+
+@pytest.fixture(
+    scope='module',
+    params=['singular_pfaffian', 'singular_slater', 'singular_restricted_slater'],
+)
+def singular_antisymmetrizer(request, efficient_envelope):
     # envelope must be here since orbitals depend on it
     return request.getfixturevalue(request.param)
 
@@ -211,15 +244,15 @@ def jastrow_models(request):
 
 # Wave Function
 @pytest.fixture(scope='module')
-def wave_function(moon, orbital_model, jastrow_models):
-    wf = WaveFunction(moon, orbital_model, jastrow_models)
+def wave_function(moon, antisymmetrizer, jastrow_models):
+    wf = WaveFunction(moon, antisymmetrizer, jastrow_models)
     return wf
 
 
 @pytest.fixture(scope='module')
 def wf_params(wave_function: WaveFunction, systems: Systems):
     if (
-        isinstance(wave_function.orbital_module, (Slater, RestrictedSlater))
+        isinstance(wave_function.antisymmetrizer, (Slater, RestrictedSlater))
         and systems.n_mols > 1
     ):
         pytest.skip('Slater requires identical spins for all molecules')
@@ -325,19 +358,9 @@ def generalized_wf_params(generalized_wf: GeneralizedWaveFunction, one_system: S
 
 # Example WF
 @pytest.fixture(scope='session')
-def neural_pfaffian(moon, double_jastrow, efficient_envelope, meta_gnn, one_system):
-    pfaffian = Pfaffian(
-        3,
-        {'1': 2, '2': 2, '3': 5, '4': 5, '5': 5, '6': 5, '7': 5, '8': 5, '9': 5, '10': 5},
-        efficient_envelope,
-        10,
-        0.1,
-        1.0,
-        1.0,
-        0.99,
-    )
+def neural_pfaffian(singular_pfaffian, moon, double_jastrow, meta_gnn, one_system):
     return GeneralizedWaveFunction.create(
-        WaveFunction(moon, pfaffian, double_jastrow), meta_gnn, one_system
+        WaveFunction(moon, singular_pfaffian, double_jastrow), meta_gnn, one_system
     )
 
 
@@ -411,35 +434,52 @@ def vmc_systems(vmc: VMC, batched_systems: Systems):
 
 
 @pytest.fixture(scope='module')
-def fixed_vmc(neural_pfaffian, spring_preconditioner, mcmc, optimizer):
+def pretrain_wf(singular_antisymmetrizer, moon, double_jastrow, meta_gnn, systems):
+    if (
+        isinstance(singular_antisymmetrizer, (Slater, RestrictedSlater))
+        and systems.n_mols > 1
+    ):
+        pytest.skip('Slater requires identical spins for all molecules')
+    return GeneralizedWaveFunction.create(
+        WaveFunction(moon, singular_antisymmetrizer, double_jastrow),
+        meta_gnn,
+        systems,
+    )
+
+
+@pytest.fixture(scope='module')
+def pretrain_vmc(pretrain_wf, spring_preconditioner, mcmc, optimizer):
     return VMC(
-        wave_function=neural_pfaffian,
+        wave_function=pretrain_wf,
         preconditioner=spring_preconditioner,
         optimizer=optimizer,
-        sampler=mcmc,
+        sampler=mcmc.replace(wave_function=pretrain_wf),
         clipping=MedianClipping(5),
     )
 
 
 @pytest.fixture(scope='module')
-def fixed_vmc_state(fixed_vmc: VMC, one_system):
-    return fixed_vmc.init(jax.random.key(0), one_system)
+def pretrain_vmc_state(pretrain_vmc: VMC, systems):
+    return pretrain_vmc.init(jax.random.key(0), systems)
 
 
 @pytest.fixture(scope='module')
-def wf_pretrainer(fixed_vmc, optimizer):
+def wf_pretrainer(pretrain_vmc, optimizer):
     return Pretraining(
-        fixed_vmc, optimizer, 1e-6, sample_from=PretrainingDistribution.WAVE_FUNCTION
+        pretrain_vmc, optimizer, 1e-6, sample_from=PretrainingDistribution.WAVE_FUNCTION
     )
 
 
 @pytest.fixture(scope='module')
-def hf_pretrainer(fixed_vmc, optimizer):
-    return Pretraining(fixed_vmc, optimizer, 1e-6, sample_from=PretrainingDistribution.HF)
+def hf_pretrainer(pretrain_vmc, optimizer):
+    return Pretraining(
+        pretrain_vmc, optimizer, 1e-6, sample_from=PretrainingDistribution.HF
+    )
 
 
 @pytest.fixture(scope='module', params=['wf_pretrainer', 'hf_pretrainer'])
-def pretrainer(request):
+def pretrainer(request, singular_antisymmetrizer, systems):
+    # The pretrainer depends on the antisymmetrizer and the systems thus they must be here
     return request.getfixturevalue(request.param)
 
 
@@ -449,8 +489,8 @@ def systems_with_hf(batched_systems):
 
 
 @pytest.fixture(scope='module')
-def pretrainer_state(pretrainer, fixed_vmc_state):
-    return pretrainer.init(fixed_vmc_state)
+def pretrainer_state(pretrainer, pretrain_vmc_state):
+    return pretrainer.init(pretrain_vmc_state)
 
 
 @pytest.fixture(scope='module')

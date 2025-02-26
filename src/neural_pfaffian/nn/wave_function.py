@@ -84,7 +84,7 @@ class WaveFunctionParameters(PyTreeNode):
 
 class WaveFunction(Generic[Orb, S], ReparamModule):
     embedding_module: EmbeddingP
-    orbital_module: AntisymmetrizerP[Orb, S]
+    antisymmetrizer: AntisymmetrizerP[Orb, S]
     jastrow_modules: Sequence[JastrowP]
 
     def init(self, key: Array, systems: Systems) -> Parameters:
@@ -99,12 +99,12 @@ class WaveFunction(Generic[Orb, S], ReparamModule):
         return self.embedding_module(systems)
 
     def _orbitals(self, systems: Systems) -> Orb:
-        return self.orbital_module(systems, self.embedding_module(systems))
+        return self.antisymmetrizer(systems, self.embedding_module(systems))
 
     def _signed(self, systems: Systems) -> SignedLogAmplitude:
         embedding = self.embedding_module(systems)
-        sign, logpsi = self.orbital_module.to_slog_psi(
-            systems, self.orbital_module(systems, embedding)
+        sign, logpsi = self.antisymmetrizer.to_slog_psi(
+            systems, self.antisymmetrizer(systems, embedding)
         )
         for jastrow in self.jastrow_modules:
             J_sign, J_logpsi = jastrow(systems, embedding)

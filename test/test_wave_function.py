@@ -3,7 +3,7 @@ import jax.numpy as jnp
 import numpy as np
 from fixtures import *  # noqa: F403
 from numpy.testing import assert_allclose
-from utils import assert_finite, assert_not_float64  # noqa: F403
+from utils import assert_finite, assert_not_float64, assert_shape_and_dtype  # noqa: F403
 
 
 def test_fwd_and_bwd(wf_apply, wf_params, systems):
@@ -17,6 +17,7 @@ def test_fwd_and_bwd(wf_apply, wf_params, systems):
     emb_sum, grad = fwd_sum(learnable_parameters, systems)
     assert isinstance(emb_sum, jax.Array)
     assert jax.numpy.isfinite(emb_sum).all()
+    assert_shape_and_dtype(learnable_parameters, grad)
     assert_finite(grad)
 
 

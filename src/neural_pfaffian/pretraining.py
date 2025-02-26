@@ -97,7 +97,7 @@ class Pretraining(Generic[PS, O, OS], PyTreeNode):
         key, subkey = jax.random.split(key)
         systems = self.vmc.init_systems(subkey, systems)
         key, subkey = jax.random.split(key)
-        systems = self.vmc.wave_function.wave_function.orbital_module.init_systems(
+        systems = self.vmc.wave_function.wave_function.antisymmetrizer.init_systems(
             subkey, systems
         )
         return systems
@@ -123,7 +123,7 @@ class Pretraining(Generic[PS, O, OS], PyTreeNode):
                 orbitals = batched_orbitals(params, systems)
 
                 orbital_loss_val, state = (
-                    self.vmc.wave_function.wave_function.orbital_module.match_hf_orbitals(
+                    self.vmc.wave_function.wave_function.antisymmetrizer.match_hf_orbitals(
                         systems, systems.hf_orbitals, orbitals, systems.cache
                     )
                 )

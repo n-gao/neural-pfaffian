@@ -2,7 +2,7 @@ import jax
 import jax.numpy as jnp
 from fixtures import *  # noqa: F403
 from numpy.testing import assert_allclose
-from utils import assert_finite, assert_not_float64
+from utils import assert_finite, assert_not_float64, assert_shape_and_dtype
 
 from neural_pfaffian.nn.module import ParamTypes
 
@@ -44,6 +44,7 @@ def test_fwd_and_bwd(out_meta, meta_gnn, systems):
     emb_sum, grad = fwd_sum(params['params'], systems)
     assert isinstance(emb_sum, jax.Array)
     assert jnp.isfinite(emb_sum).all()
+    assert_shape_and_dtype(params['params'], grad)
     assert_finite(grad)
 
 

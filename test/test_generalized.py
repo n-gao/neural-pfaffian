@@ -4,7 +4,7 @@ import numpy as np
 import pytest
 from fixtures import *  # noqa: F403
 from numpy.testing import assert_allclose
-from utils import assert_finite, assert_not_float64
+from utils import assert_finite, assert_not_float64, assert_shape_and_dtype
 
 
 def test_param_dtype(generalized_wf_params):
@@ -20,6 +20,7 @@ def test_fwd_and_bwd(generalized_wf, generalized_wf_params, two_systems):
     emb_sum, grad = fwd_sum(generalized_wf_params, two_systems)
     assert isinstance(emb_sum, jax.Array)
     assert jax.numpy.isfinite(emb_sum).all()
+    assert_shape_and_dtype(generalized_wf_params, grad)
     assert_finite(grad)
 
 
