@@ -100,15 +100,15 @@ class VMC(Generic[PS, O, OS], PyTreeNode):
     def mcmc_step(self, key: Array, state: VMCState[PS], systems: Systems):
         @shmap(
             in_specs=(REPLICATE_SHARD, state.sharding, systems.sharding),
-            out_specs=systems.sharding,
+            out_specs=(systems.sharding, REPLICATE_SHARD),
             check_rep=False,
         )
         def _mcmc_step(key: Array, state: VMCState[PS], systems: Systems):
             key = distribute_keys(key)
             # Sampling
             key, subkey = jax.random.split(key)
-            systems = self.sampler(subkey, state.params, systems)
-            return systems
+            systems, aux_data = self.sampler(subkey, state.params, systems)
+            return systems, aux_data
 
         return _mcmc_step(key, state, systems)
 
@@ -123,7 +123,9 @@ class VMC(Generic[PS, O, OS], PyTreeNode):
             key = distribute_keys(key)
             # Sampling
             key, subkey = jax.random.split(key)
-            systems = self.sampler(subkey, state.params, systems)
+            aux_data = {}
+            systems, mcmc_aux = self.sampler(subkey, state.params, systems)
+            aux_data |= {f'mcmc/{k}': v for k, v in mcmc_aux.items()}
 
             # Local energy
             e_l = self.local_energy(state, systems)
@@ -131,9 +133,10 @@ class VMC(Generic[PS, O, OS], PyTreeNode):
             dE_dlogpsi = local_energy_diff(clipped_e_l)
 
             # Preconditioning
-            gradient, preconditioner_state, aux_data = self.preconditioner.apply(
+            gradient, preconditioner_state, precond_aux = self.preconditioner.apply(
                 state.params, systems, dE_dlogpsi, state.preconditioner
             )
+            aux_data |= {f'preconditioner/{k}': v for k, v in precond_aux.items()}
 
             # Update step
             updates, opt_state = self.optimizer.update(gradient, state.optimizer)  # type: ignore

@@ -30,7 +30,7 @@ def iterative_attention(
         systems.group(K, chunk_electron),
         systems.group(V, chunk_electron),
     ):
-        A = jnp.einsum('...ahd,...bhd->...abh', q, k) / jnp.sqrt(dim / heads)
+        A = jnp.einsum('...ahd,...bhd->...abh', q, k) / jnp.sqrt(dim)
         A = jax.nn.softmax(A, axis=-2)
         attn = jnp.einsum('...abh,...bhd->...ahd', A, v).reshape(*v.shape[:-2], -1)
         result.extend(list(attn))
@@ -42,7 +42,7 @@ def parallel_attention(
 ):
     e_e_i, e_e_j, _ = systems.elec_elec_idx
     n, heads, dim = Q.shape
-    A = jnp.einsum('...ahd,...ahd->...ah', Q[e_e_i], K[e_e_j]) / jnp.sqrt(dim / heads)
+    A = jnp.einsum('...ahd,...ahd->...ah', Q[e_e_i], K[e_e_j]) / jnp.sqrt(dim)
     A = segment_softmax(A, e_e_j, n)
     attn = jax.ops.segment_sum(jnp.einsum('...ah,...ahd->...ahd', A, V[e_e_j]), e_e_i, n)
     return attn.reshape(n, -1)
@@ -56,7 +56,8 @@ class Attention(nn.Module):
 
     @nn.compact
     def __call__(self, systems: Systems, h_one: SingleStream):
-        Q, K, V = jnp.split(nn.Dense(self.dim * 3)(h_one), 3, axis=-1)
+        assert self.dim % self.heads == 0, 'dim must be divisible by heads'
+        Q, K, V = jnp.split(nn.Dense(self.dim * 3, use_bias=False)(h_one), 3, axis=-1)
         Q, K, V = jtu.tree_map(
             lambda x: x.reshape(*x.shape[:-1], self.heads, -1), (Q, K, V)
         )
@@ -69,7 +70,9 @@ class Attention(nn.Module):
                 raise ValueError(
                     f'Unknown attention implementation: {self.attention_implementation}'
                 )
-        h_one += attn
+        assert attn.shape == h_one.shape
+        # this layer is technically redundant but it's in the original code
+        h_one += nn.Dense(self.dim, use_bias=False)(attn)
         h_one = nn.LayerNorm()(h_one)
 
         mlp_out = Activation(self.activation)(nn.Dense(self.dim)(h_one))
@@ -90,9 +93,15 @@ class PsiFormer(nn.Module, EmbeddingP):
     @nn.compact
     def __call__(self, systems: Systems):
         assert self.dim == self.embedding_dim, 'dim must be equal to embedding_dim'
-        h_one, _ = FermiNetFeatures(self.embedding_dim)(systems)
+        h_one, _ = FermiNetFeatures(self.embedding_dim, False, False)(systems)
         # Spin embedding
-        h_one += nn.Embed(2, self.embedding_dim)(systems.spin_mask)
+        spin_emb = self.param(
+            'spin_emb',
+            jax.nn.initializers.normal(stddev=1 / jnp.sqrt(self.embedding_dim)),
+            (h_one.shape[-1],),
+            jnp.float32,
+        )
+        h_one += spin_emb * (2 * systems.spin_mask - 1)[:, None].astype(jnp.float32)
         for _ in range(self.n_layer):
             h_one = Attention(
                 self.dim, self.n_head, self.activation, self.attention_implementation

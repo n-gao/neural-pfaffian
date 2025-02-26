@@ -29,7 +29,8 @@ def thermalize(
     for _ in tqdm.trange(n_epochs):
         for i in range(len(batches)):
             key, subkey = jax.random.split(key)
-            batches[i] = vmc.mcmc_step(subkey, state, batches[i])
+            batches[i], aux_data = vmc.mcmc_step(subkey, state, batches[i])
+            logger.log(aux_data, prefix='mcmc')
     return Systems.merge(batches)
 
 

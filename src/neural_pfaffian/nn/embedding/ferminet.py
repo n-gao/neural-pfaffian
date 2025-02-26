@@ -85,6 +85,8 @@ class FermiLayer(nn.Module):
 
 class FermiNetFeatures(ReparamModule):
     out_dim: int
+    use_bias: bool = True
+    non_linear: bool = True
 
     @nn.compact
     def __call__(self, systems: Systems) -> tuple[SingleStream, PairStream]:
@@ -101,14 +103,20 @@ class FermiNetFeatures(ReparamModule):
             param_type=ParamTypes.NUCLEI,
             keep_distr=True,
         )[0][nuc_idx]
-        bias = self.reparam(
-            'bias',
-            jnn.initializers.constant(0, jnp.float32),
-            (systems.n_nuc, self.out_dim),
-            param_type=ParamTypes.NUCLEI,
-        )[0][nuc_idx]
-        h_one = jnp.einsum('...d,...dk->...k', h_one, kernel) + bias
-        h_one = jnp.tanh(h_one)
+        h_one = jnp.einsum('...d,...dk->...k', h_one, kernel)
+
+        if self.use_bias:
+            bias = self.reparam(
+                'bias',
+                jnn.initializers.constant(0, jnp.float32),
+                (systems.n_nuc, self.out_dim),
+                param_type=ParamTypes.NUCLEI,
+            )[0][nuc_idx]
+            h_one += bias
+
+        if self.non_linear:
+            h_one = jnp.tanh(h_one)
+
         h_one = segment_sum(h_one, systems.elec_nuc_idx[0], systems.n_elec, True)
         return h_one, h_two
 

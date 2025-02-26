@@ -155,7 +155,9 @@ class MetropolisHastings(PyTreeNode):
             )
         return systems
 
-    def __call__(self, key: Array, params: WaveFunctionParameters, systems: S) -> S:
+    def __call__(
+        self, key: Array, params: WaveFunctionParameters, systems: S
+    ) -> tuple[S, dict[str, Float[Array, '']]]:
         # Fix the per molecule parameters and do not recompute them
         wf_fixed = self.wave_function.fix_structure(params, systems)
         # Get current width
@@ -180,7 +182,9 @@ class MetropolisHastings(PyTreeNode):
         pmove = jnp.sum(num_accepts, axis=0) / (self.steps * batch_size)
         pmove = pmean_if_pmap(pmove)
         width_state = self.width_scheduler.update(width_state, pmove)
-        return systems.replace(electrons=electrons).set_mol_data(_WIDTH_KEY, width_state)
+        return systems.replace(electrons=electrons).set_mol_data(
+            _WIDTH_KEY, width_state
+        ), dict(pmove=pmove.mean())
 
     @property
     def width_scheduler(self):

@@ -15,15 +15,17 @@ def test_dtypes(vmc_state: VMCState, vmc_systems: Systems):
 
 def test_mcmc(vmc: VMC, vmc_state: VMCState, vmc_systems: Systems):
     # Test one step
-    new_systems = vmc.mcmc_step(jax.random.key(8), vmc_state, vmc_systems)
+    new_systems, aux_data = vmc.mcmc_step(jax.random.key(8), vmc_state, vmc_systems)
 
     assert_finite(new_systems)
+    assert_finite(aux_data)
     assert_shape_and_dtype(new_systems, vmc_systems)
 
     # Test a second step
-    new_systems = vmc.mcmc_step(jax.random.key(9), vmc_state, new_systems)
+    new_systems, aux_data = vmc.mcmc_step(jax.random.key(9), vmc_state, new_systems)
 
     assert_finite(new_systems)
+    assert_finite(aux_data)
     assert_shape_and_dtype(new_systems, vmc_systems)
 
 

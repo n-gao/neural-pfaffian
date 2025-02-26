@@ -18,7 +18,7 @@ from neural_pfaffian.utils.jax_utils import (
     pmean_if_pmap,
     shmap,
 )
-from neural_pfaffian.utils.tree_utils import tree_sum
+from neural_pfaffian.utils.tree_utils import tree_sum, tree_squared_norm
 from neural_pfaffian.vmc import VMC, VMCState
 
 PS = TypeVar('PS')
@@ -114,7 +114,9 @@ class Pretraining(Generic[PS, O, OS], PyTreeNode):
         ) -> tuple[PretrainingState[PS], SystemsWithHF, dict[str, jax.Array]]:
             key = distribute_keys(key)
             key, subkey = jax.random.split(key)
-            systems = self.mcmc(subkey, state.vmc_state.params, systems)
+            aux_data = {}
+            systems, mcmc_aux = self.mcmc(subkey, state.vmc_state.params, systems)
+            aux_data |= {f'mcmc/{k}': v for k, v in mcmc_aux.items()}
             batched_orbitals = jax.vmap(
                 self.vmc.wave_function.orbitals, in_axes=(None, systems.electron_vmap)
             )
@@ -144,9 +146,10 @@ class Pretraining(Generic[PS, O, OS], PyTreeNode):
                     ),
                 )
 
-            (_, (cache, log_data)), grad = pmean_if_pmap(
+            (_, (cache, loss_aux)), grad = pmean_if_pmap(
                 jax.value_and_grad(loss, has_aux=True)(state.vmc_state.params)
             )
+            aux_data |= loss_aux | {'grad_norm': tree_squared_norm(grad) ** 0.5}
 
             updates, pre_opt_state = self.optimizer.update(
                 grad,
@@ -161,7 +164,7 @@ class Pretraining(Generic[PS, O, OS], PyTreeNode):
                     pre_opt_state=pre_opt_state,
                 ),
                 systems.replace(cache=cache),
-                log_data,
+                aux_data,
             )
 
         return _step(key, state, systems)

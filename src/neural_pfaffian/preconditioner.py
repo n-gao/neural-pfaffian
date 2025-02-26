@@ -1,5 +1,6 @@
 from typing import Protocol, TypeVar
 
+import einops
 import jax
 import jax.numpy as jnp
 import jax.tree_util as jtu
@@ -230,6 +231,17 @@ class Spring(PyTreeNode, Preconditioner[SpringState]):
         for i in range(len(jacs[0])):
             JT_J += to_covariance([j[i] for j in jacs])
         JT_J = psum_if_pmap(JT_J)
+        # These don't change anything if the numerics are correct and are just for numerical stability
+        JT_J = (JT_J + JT_J.T) / 2
+        JT_J = einops.rearrange(
+            JT_J,
+            '(batch_1 mol_1) (mol_2 batch_2) -> batch_1 mol_1 mol_2 batch_2',
+            mol_1=systems.n_mols,
+            mol_2=systems.n_mols,
+        )
+        JT_J -= JT_J.mean(axis=0, keepdims=True)
+        JT_J -= JT_J.mean(axis=3, keepdims=True)
+        JT_J = JT_J.reshape(N, N)
 
         def log_p_closure(params):
             return jax.vmap(log_p, in_axes=(None, systems.electron_vmap))(params, systems)
@@ -252,7 +264,7 @@ class Spring(PyTreeNode, Preconditioner[SpringState]):
         sigma, U = jnp.linalg.eigh(JT_J, symmetrize_input=True)
         # Ensure that condition number is at worst 1e10
         damping = jnp.maximum(sigma[-1] / 1e10, state.damping)
-        sigma += damping
+        sigma = jnp.maximum(sigma, 0) + damping
 
         x = U.reshape(n_dev, -1, U.shape[1])[pidx()] @ ((U.T @ epsilon_tilde) / sigma)
         preconditioned = vjp(x)
@@ -260,8 +272,8 @@ class Spring(PyTreeNode, Preconditioner[SpringState]):
         # Convert back to the original dtype
         update = jtu.tree_map(jax.lax.convert_element_type, natgrad, out_dtypes)
         aux_data = {
-            'spring/cond_nr10': jnp.log10(sigma[-1]) - jnp.log10(sigma[0]),
-            'spring/grad_norm': tree_squared_norm(dE_dlogpsi) ** 0.5,
+            'cond_nr10': jnp.log10(sigma[-1]) - jnp.log10(sigma[0]),
+            'grad_norm': tree_squared_norm(dE_dlogpsi) ** 0.5,
         }
         return update, state.replace(last_grad=natgrad), aux_data
 

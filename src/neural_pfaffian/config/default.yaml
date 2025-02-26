@@ -84,7 +84,7 @@ vmc:
   epochs: 100_000
   batch_size: 128 # by default full batch
 
-  thermalizing_epochs: 100
+  thermalizing_epochs: 1000
 
   mcmc:
     steps: 20
