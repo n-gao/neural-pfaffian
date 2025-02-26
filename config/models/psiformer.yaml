@@ -16,7 +16,7 @@ wave_function:
     module: null
 
 pretraining:
-  epochs: 20000
+  epochs: 100_000
   basis: sto-6g
   reparam_loss_scale: 0.0
   sample_from: hf
