@@ -72,8 +72,8 @@ def systems_float64(systems):
 @pytest.fixture(scope='module')
 def ferminet():
     return FermiNet(
-        embedding_dim=16,
-        hidden_dims=[(16, 4), (16, 4)],
+        embedding_dim=4,
+        hidden_dims=[(4, 2), (4, 2)],
         activation=jnp.tanh,
     )
 
@@ -81,10 +81,10 @@ def ferminet():
 @pytest.fixture(scope='module')
 def psiformer_iterative():
     return PsiFormer(
-        embedding_dim=32,
-        dim=32,
-        n_head=4,
-        n_layer=2,
+        embedding_dim=4,
+        dim=4,
+        n_head=2,
+        n_layer=1,
         activation=jnp.tanh,
         attention_implementation=AttentionImplementation.ITERATIVE,
     )
@@ -93,10 +93,10 @@ def psiformer_iterative():
 @pytest.fixture(scope='module')
 def psiformer_parallel():
     return PsiFormer(
-        embedding_dim=32,
-        dim=32,
-        n_head=4,
-        n_layer=2,
+        embedding_dim=4,
+        dim=4,
+        n_head=2,
+        n_layer=1,
         activation=jnp.tanh,
         attention_implementation=AttentionImplementation.ITERATIVE,
     )
@@ -105,12 +105,12 @@ def psiformer_parallel():
 @pytest.fixture(scope='session')
 def moon():
     return Moon(
-        embedding_dim=32,
-        dim=32,
-        n_layer=2,
-        edge_embedding=8,
-        edge_hidden_dim=4,
-        edge_rbf=4,
+        embedding_dim=4,
+        dim=4,
+        n_layer=1,
+        edge_embedding=4,
+        edge_hidden_dim=2,
+        edge_rbf=2,
         activation=jnp.tanh,
     )
 
@@ -157,7 +157,7 @@ def pfaffian(envelope):
         2,
         {'1': 2, '2': 2, '3': 5, '4': 5, '5': 5, '6': 5, '7': 5, '8': 5, '9': 5, '10': 5},
         envelope,
-        10,
+        2,
         0.1,
         1.0,
         1.0,
@@ -187,7 +187,7 @@ def singular_pfaffian(efficient_envelope):
         2,
         {'1': 2, '2': 2, '3': 5, '4': 5, '5': 5, '6': 5, '7': 5, '8': 5, '9': 5, '10': 5},
         efficient_envelope,
-        10,
+        2,
         0.1,
         1.0,
         1.0,
@@ -276,7 +276,7 @@ def meta_gnn():
         out_structure=None,
         message_dim=4,
         embedding_dim=8,
-        num_layers=2,
+        num_layers=1,
         activation=jnp.tanh,
         n_rbf=4,
         charges=(1, 2, 3, 4, 5, 6, 7, 8, 9, 10),
