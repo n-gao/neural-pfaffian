@@ -405,15 +405,22 @@ def preconditioner(request) -> Preconditioner:
 
 @pytest.fixture(scope='module')
 def mcmc(neural_pfaffian: GeneralizedWaveFunction):
-    return MetropolisHastings(neural_pfaffian, 5, jnp.array(1.0), 2, 0.5, 0.025, 1)
+    return MetropolisHastings(neural_pfaffian, 5, jnp.array(0.01), 2, 0.5, 0.025, 1, 0, 0)
 
 
 @pytest.fixture(scope='module')
 def block_mcmc(neural_pfaffian: GeneralizedWaveFunction):
-    return MetropolisHastings(neural_pfaffian, 5, jnp.array(1.0), 2, 0.5, 0.025, 3)
+    return MetropolisHastings(neural_pfaffian, 5, jnp.array(0.01), 2, 0.5, 0.025, 3, 0, 0)
 
 
-@pytest.fixture(scope='module', params=['mcmc', 'block_mcmc'])
+@pytest.fixture(scope='module')
+def nonlocal_mcmc(neural_pfaffian: GeneralizedWaveFunction):
+    return MetropolisHastings(
+        neural_pfaffian, 1, jnp.array(0.01), 2, 0.5, 0.025, 1, 10, 2.0
+    )
+
+
+@pytest.fixture(scope='module', params=['mcmc', 'block_mcmc', 'nonlocal_mcmc'])
 def mcmcs(request):
     return request.getfixturevalue(request.param)
 

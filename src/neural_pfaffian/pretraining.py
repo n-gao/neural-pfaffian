@@ -80,7 +80,9 @@ class Pretraining(Generic[PS, O, OS], PyTreeNode):
         match PretrainingDistribution(self.sample_from):
             case PretrainingDistribution.HF:
                 return self.vmc.sampler.replace(
-                    wave_function=HFWaveFunction(), steps=1, blocks=1
+                    wave_function=HFWaveFunction(),
+                    steps=1,
+                    nonlocal_steps=min(1, self.vmc.sampler.nonlocal_steps),
                 )
             case PretrainingDistribution.WAVE_FUNCTION:
                 return self.vmc.sampler

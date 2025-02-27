@@ -93,6 +93,8 @@ vmc:
     target_pmove: 0.525
     error: 0.025
     blocks: 1
+    nonlocal_steps: 0
+    nonlocal_step_width: 2.0
 
   preconditioner:
     module: spring # ['identity', 'cg', 'spring']
