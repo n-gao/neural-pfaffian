@@ -93,8 +93,8 @@ class FermiNetFeatures(ReparamModule):
         h_two = log1p_rescale(systems.elec_elec_dists)
         n = systems.n_elec_pair_same
         h_two = (h_two[:n], h_two[n:])
+        elec_idx, nuc_idx = systems.elec_nuc_idx[:2]
 
-        nuc_idx = systems.elec_nuc_idx[1]
         h_one = log1p_rescale(systems.elec_nuc_dists)
         kernel = self.reparam(
             'kernel',
@@ -117,7 +117,7 @@ class FermiNetFeatures(ReparamModule):
         if self.non_linear:
             h_one = jnp.tanh(h_one)
 
-        h_one = segment_sum(h_one, systems.elec_nuc_idx[0], systems.n_elec, True)
+        h_one = segment_sum(h_one, elec_idx, systems.n_elec, True)
         return h_one, h_two
 
 

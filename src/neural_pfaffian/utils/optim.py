@@ -76,11 +76,15 @@ def get_transformations(
     return [get_transform(transform) for transform in transformations]
 
 
-def filter_by_param(name: str, transformations: TransformationConfig):
+def filter_by_param(name: str | Sequence[str], transformations: TransformationConfig):
+    if isinstance(name, str):
+        name = [name]
+
     def mask(params):
         def _mask(path, tensor):
             try:
-                return name in getattr(path[-1], 'name', getattr(path[-1], 'key', ''))
+                tensor_name = getattr(path[-1], 'name', getattr(path[-1], 'key', ''))
+                return any(n in tensor_name for n in name)
             except Exception:
                 return False
 

@@ -138,7 +138,10 @@ pretraining:
       max_norm: 1
     - transform: scale_by_adam
     - transform: filter_by_param
-      name: kernel
+      name:
+        - kernel
+        - pi
+        - sigma
       transformations: [scale_by_trust_ratio]
     - transform: filter_by_param
       name: embedding

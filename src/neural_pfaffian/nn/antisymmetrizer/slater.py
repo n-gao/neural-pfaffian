@@ -60,10 +60,9 @@ class Slater(ReparamModule, AntisymmetrizerP[SlaterOrbitals, None]):
         is_up = systems.spin_mask == 0
         # TODO: this is rather inefficient, as we compute the full set of orbitals for each spin
         # one could optimize this by computing only the necessary orbitals.
-        env_up = self.envelope.copy(out_dim=n_out, pi_init=1.0, keep_distr=False)(systems)
-        env_down = self.envelope.copy(out_dim=n_out, pi_init=1.0, keep_distr=False)(
-            systems
-        )
+        env = self.envelope.copy(out_dim=n_out, pi_init=1.0, keep_distr=False)
+        env_up = env.copy()(systems)
+        env_down = env.copy()(systems)
         assert len(env_up) == 1 and len(env_down) == 1
         env_up = env_up[0][systems.inverse_unique_indices].reshape(systems.n_elec, -1)
         env_down = env_down[0][systems.inverse_unique_indices].reshape(systems.n_elec, -1)

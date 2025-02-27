@@ -252,9 +252,8 @@ class HFWaveFunction(GeneralizedWaveFunction):
         return self
 
     def apply(self, params, systems: SystemsWithHF):
-        orbitals = systems.hf_orbitals
         result = []
-        for up, down in orbitals:
+        for up, down in systems.hf_orbitals:
             _, logdet_up = jnp.linalg.slogdet(up)
             _, logdet_down = jnp.linalg.slogdet(down)
             result.append(logdet_up + logdet_down)

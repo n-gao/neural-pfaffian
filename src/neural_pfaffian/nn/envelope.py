@@ -19,6 +19,8 @@ class Envelope(ReparamModule):
     # If True, multiplies the output dimension by the number of nuclei in the molecule
     out_per_nuc: bool = False
     keep_distr: bool = False
+    # If True, a softplus is applied to the sigma parameters to ensure that the wave function is integrable
+    enforce_integrability: bool = True
 
     def __call__(self, systems: Systems) -> list[Array]: ...
 
@@ -44,7 +46,8 @@ class FullEnvelope(Envelope):
             bias=True,
             keep_distr=self.keep_distr,
         )
-        sigma = nn.softplus(sigma)
+        if self.enforce_integrability:
+            sigma = nn.softplus(sigma)
         result: list[Array] = []
         for pi, sigma, elec_nuc, (spins, charges) in zip(
             systems.group(pi, pi_meta.param_type.value.chunk_fn),
@@ -90,7 +93,8 @@ class EfficientEnvelope(Envelope):
             bias=True,
             keep_distr=self.keep_distr,
         )
-        sigma = nn.softplus(sigma)
+        if self.enforce_integrability:
+            sigma = nn.softplus(sigma)
         result: list[Array] = []
         for pi, sigma, elec_nuc, (spins, charges) in zip(
             systems.group(pi, pi_meta.param_type.value.chunk_fn),
