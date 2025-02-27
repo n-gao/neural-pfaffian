@@ -71,8 +71,9 @@ class Attention(nn.Module):
                     f'Unknown attention implementation: {self.attention_implementation}'
                 )
         assert attn.shape == h_one.shape
-        # this layer is technically redundant but it's in the original code
-        h_one += nn.Dense(self.dim, use_bias=False)(attn)
+        # The original implementation contains another dense layer here
+        # Though this is redundant with the value layer and, thus, removed here.
+        h_one += attn
         h_one = nn.LayerNorm()(h_one)
 
         mlp_out = Activation(self.activation)(nn.Dense(self.dim)(h_one))
