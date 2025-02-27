@@ -7,9 +7,6 @@ wave_function:
         attention_implementation: iterative
   envelope:
     module: full
-    args:
-      full:
-        enforce_integrability: false
   orbitals:
     module: slater
   jastrows:
