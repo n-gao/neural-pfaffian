@@ -5,7 +5,9 @@ from utils import assert_finite, assert_shape_and_dtype
 from neural_pfaffian.utils.jax_utils import BATCH_SPEC, REPLICATE_SPEC, shmap
 
 
-def test_preconditioner(preconditioner, neural_pfaffian_params, batched_systems):
+def test_preconditioner(
+    preconditioner, neural_pfaffian_params, batched_systems, clear_cache_each_time
+):
     state = preconditioner.init(neural_pfaffian_params)
     apply = shmap(
         preconditioner.apply,

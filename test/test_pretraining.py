@@ -29,6 +29,7 @@ def test_step(
     pretrainer: Pretraining,
     pretrainer_state: PretrainingState,
     pretraining_systems: SystemsWithHF,
+    clear_cache_each_time,
 ):
     # Test one step
     new_state, new_systems, aux_data = pretrainer.step(

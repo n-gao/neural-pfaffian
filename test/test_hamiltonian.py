@@ -17,7 +17,9 @@ def test_potential_energy(systems):
 
 
 @pytest.mark.parametrize('operator', [KineticEnergyOp.LOOP, KineticEnergyOp.FORWARD])
-def test_kinetic_energy(neural_pfaffian, neural_pfaffian_params, systems, operator):
+def test_kinetic_energy(
+    neural_pfaffian, neural_pfaffian_params, systems, operator, clear_cache_each_time
+):
     kin_fn = make_kinetic_energy(neural_pfaffian, operator)
     kin = kin_fn(neural_pfaffian_params, systems)
     assert kin.shape == (systems.n_mols,)

@@ -32,6 +32,16 @@ def clear_cache():
     gc.collect()
 
 
+@pytest.fixture
+def clear_cache_each_time():
+    # Ensure that before and after every module we clear JAX's caches
+    jax.clear_caches()
+    gc.collect()
+    yield
+    jax.clear_caches()
+    gc.collect()
+
+
 # Systems
 @pytest.fixture(scope='session')
 def one_system():

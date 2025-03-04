@@ -40,7 +40,7 @@ def test_energy(vmc: VMC, vmc_state: VMCState, vmc_systems: Systems):
     assert e_l.dtype == vmc_systems.electrons.dtype
 
 
-def test_step(vmc: VMC, vmc_state: VMCState, vmc_systems: Systems):
+def test_step(vmc: VMC, vmc_state: VMCState, vmc_systems: Systems, clear_cache_each_time):
     # Test one step
     new_state, new_systems, aux_data = vmc.step(
         jax.random.key(8), vmc_state.sharded, vmc_systems.sharded
