@@ -50,6 +50,7 @@ ignore = ["F722", "E741"]
 "main.py" = ["F841"] # unused variables are allowed in main.py
 
 [tool.uv]
+required-version = ">=0.6.0"
 dev-dependencies = [
     "ipykernel>=6.29.5",
     "pre-commit>=4.0.1",
