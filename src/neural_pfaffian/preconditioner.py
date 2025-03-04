@@ -1,6 +1,5 @@
 from typing import Protocol, TypeVar
 
-import einops
 import jax
 import jax.numpy as jnp
 import jax.tree_util as jtu
@@ -15,6 +14,7 @@ from neural_pfaffian.systems import Systems
 from neural_pfaffian.utils.cg import cg
 from neural_pfaffian.utils import Modules
 from neural_pfaffian.utils.jax_utils import (
+    jit,
     pall_to_all,
     pgather,
     pidx,
@@ -50,6 +50,7 @@ class Identity(PyTreeNode, Preconditioner[None]):
     def init(self, params: WaveFunctionParameters) -> None:
         return None
 
+    @jit
     def apply(
         self,
         params: WaveFunctionParameters,
@@ -77,7 +78,7 @@ class CG(PyTreeNode, Preconditioner[CGState]):
     wave_function: GeneralizedWaveFunction = field(pytree_node=False)
     damping: Float[ArrayLike, '']
     decay_factor: Float[ArrayLike, '']
-    maxiter: int
+    maxiter: int = field(pytree_node=False)
 
     def init(self, params: WaveFunctionParameters):
         return SpringState(
@@ -85,6 +86,7 @@ class CG(PyTreeNode, Preconditioner[CGState]):
             damping=jnp.asarray(self.damping, dtype=jnp.float32),
         )
 
+    @jit
     def apply(
         self,
         params: WaveFunctionParameters,
@@ -121,6 +123,7 @@ class CG(PyTreeNode, Preconditioner[CGState]):
         decayed_last_grad = tree_mul(last_grad, self.decay_factor)
         b = tree_add(grad, tree_mul(decayed_last_grad, state.damping))
 
+        @jit
         def Fisher_matmul(v):
             # J^T J v
             result = vjp(jvp(v))
@@ -166,6 +169,7 @@ class Spring(PyTreeNode, Preconditioner[SpringState]):
             damping=jnp.asarray(self.damping, dtype=jnp.float32),
         )
 
+    @jit
     def apply(
         self,
         params: WaveFunctionParameters,
@@ -184,8 +188,19 @@ class Spring(PyTreeNode, Preconditioner[SpringState]):
                 (params, systems, dE_dlogpsi), self.dtype
             )
 
+        @jit
         def log_p(params, systems):
             return self.wave_function.apply(params, systems) * normalization  # type: ignore
+
+        @jit
+        def log_p_closure(params):
+            return jax.vmap(log_p, in_axes=(None, systems.electron_vmap))(params, systems)
+
+        def vjp(x):
+            return psum_if_pmap(jax.vjp(log_p_closure, params)[1](center_fn(x))[0])
+
+        def jvp(x):
+            return center_fn(jax.jvp(log_p_closure, (params,), (x,))[1])
 
         def center_fn(
             x: Float[Array, 'batch_size n_mols'],
@@ -204,13 +219,13 @@ class Spring(PyTreeNode, Preconditioner[SpringState]):
             def jac_fn(params, systems):
                 return log_p(params, systems).sum()
 
-            jac_tree = jac_fn(params, sub_systems)
-            jac_tree = jtu.tree_map(lambda x: x.reshape(*elec.shape[:2], -1), jac_tree)
-            jacs.append(jtu.tree_leaves(jac_tree))
+            jacs.append(jac_fn(params, sub_systems))
 
-        def to_covariance(jacs: list[jax.Array]) -> jax.Array:
+        @jit
+        def to_covariance(*jacs: jax.Array) -> jax.Array:
             # merge all systems into a single jacobian
             # jac is (N, mols, params)
+            jacs = tuple(x.reshape(*x.shape[:2], -1) for x in jacs)
             jac = jnp.concatenate(jacs, axis=1)[:, systems.inverse_unique_indices]
             n_params = jac.shape[-1]
             # check for parameters that are not split evenly across devices
@@ -227,32 +242,10 @@ class Spring(PyTreeNode, Preconditioner[SpringState]):
             return jac @ jac.T + remainder @ remainder.T / n_dev
 
         # Compute covariance
-        JT_J = jnp.zeros((N, N), dtype=self.dtype)
-        for i in range(len(jacs[0])):
-            JT_J += to_covariance([j[i] for j in jacs])
+        JT_J = jtu.tree_reduce(jnp.add, jtu.tree_map(to_covariance, *jacs))
         JT_J = psum_if_pmap(JT_J)
         # These don't change anything if the numerics are correct and are just for numerical stability
         JT_J = (JT_J + JT_J.T) / 2
-        JT_J = einops.rearrange(
-            JT_J,
-            '(batch_1 mol_1) (mol_2 batch_2) -> batch_1 mol_1 mol_2 batch_2',
-            mol_1=systems.n_mols,
-            mol_2=systems.n_mols,
-        )
-        JT_J -= JT_J.mean(axis=0, keepdims=True)
-        JT_J -= JT_J.mean(axis=3, keepdims=True)
-        JT_J = JT_J.reshape(N, N)
-
-        def log_p_closure(params):
-            return jax.vmap(log_p, in_axes=(None, systems.electron_vmap))(params, systems)
-
-        _, vjp_fn = jax.vjp(log_p_closure, params)
-
-        def vjp(x):
-            return psum_if_pmap(vjp_fn(center_fn(x))[0])
-
-        def jvp(x):
-            return center_fn(jax.jvp(log_p_closure, (params,), (x,))[1])
 
         # construct epsilon tilde
         # we hack this into the natgrad state

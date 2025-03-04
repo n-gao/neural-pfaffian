@@ -12,7 +12,8 @@ from neural_pfaffian.nn.module import ParamMeta
 from neural_pfaffian.nn.wave_function import HFWaveFunction, WaveFunctionParameters
 from neural_pfaffian.systems import SystemsWithHF
 from neural_pfaffian.utils.jax_utils import (
-    REPLICATE_SHARD,
+    REPLICATE_SPEC,
+    SerializeablePyTree,
     distribute_keys,
     jit,
     pmean_if_pmap,
@@ -58,14 +59,14 @@ def reparam_loss(
     return loss_scale * tree_sum(jax.tree.map(loss, reparams, meta))
 
 
-class PretrainingState(Generic[PS], PyTreeNode):
+class PretrainingState(Generic[PS], SerializeablePyTree):
     vmc_state: VMCState[PS]
     pre_opt_state: optax.OptState
 
     @property
-    def sharding(self):
+    def partition_spec(self):
         return self.replace(
-            vmc_state=self.vmc_state.sharding, pre_opt_state=REPLICATE_SHARD
+            vmc_state=self.vmc_state.partition_spec, pre_opt_state=REPLICATE_SPEC
         )
 
 
@@ -107,8 +108,8 @@ class Pretraining(Generic[PS, O, OS], PyTreeNode):
     @jit
     def step(self, key: jax.Array, state: PretrainingState[PS], systems: SystemsWithHF):
         @shmap(
-            in_specs=(REPLICATE_SHARD, state.sharding, systems.sharding),
-            out_specs=(state.sharding, systems.sharding, REPLICATE_SHARD),
+            in_specs=(REPLICATE_SPEC, state.partition_spec, systems.partition_spec),
+            out_specs=(state.partition_spec, systems.partition_spec, REPLICATE_SPEC),
             check_rep=False,
         )
         def _step(

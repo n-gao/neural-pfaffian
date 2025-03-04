@@ -2,7 +2,7 @@ import jax
 from fixtures import *  # noqa: F403
 from utils import assert_finite, assert_shape_and_dtype
 
-from neural_pfaffian.utils.jax_utils import BATCH_SHARD, REPLICATE_SHARD, shmap
+from neural_pfaffian.utils.jax_utils import BATCH_SPEC, REPLICATE_SPEC, shmap
 
 
 def test_preconditioner(preconditioner, neural_pfaffian_params, batched_systems):
@@ -10,12 +10,12 @@ def test_preconditioner(preconditioner, neural_pfaffian_params, batched_systems)
     apply = shmap(
         preconditioner.apply,
         in_specs=(
-            REPLICATE_SHARD,
-            batched_systems.sharding,
-            BATCH_SHARD,
-            REPLICATE_SHARD,
+            REPLICATE_SPEC,
+            batched_systems.partition_spec,
+            BATCH_SPEC,
+            REPLICATE_SPEC,
         ),
-        out_specs=REPLICATE_SHARD,
+        out_specs=REPLICATE_SPEC,
         check_rep=False,
     )
     apply = jax.jit(apply)

@@ -32,7 +32,7 @@ def test_step(
 ):
     # Test one step
     new_state, new_systems, aux_data = pretrainer.step(
-        jax.random.key(8), pretrainer_state, pretraining_systems
+        jax.random.key(8), pretrainer_state.sharded, pretraining_systems.sharded
     )
 
     assert_finite(new_state)
@@ -43,7 +43,7 @@ def test_step(
 
     # Test a second step
     new_state, new_systems, aux_data = pretrainer.step(
-        jax.random.key(9), new_state, new_systems
+        jax.random.key(9), new_state.sharded, new_systems.sharded
     )
 
     assert_finite(new_state)

@@ -29,7 +29,9 @@ def thermalize(
     for _ in tqdm.trange(n_epochs):
         for i in range(len(batches)):
             key, subkey = jax.random.split(key)
-            batches[i], aux_data = vmc.mcmc_step(subkey, state, batches[i])
+            batches[i], aux_data = vmc.mcmc_step(
+                subkey, state.sharded, batches[i].sharded
+            )
             logger.log(aux_data, prefix='mcmc')
     return Systems.merge(batches)
 
@@ -64,14 +66,14 @@ def pretrain(
             key, subkey = jax.random.split(key)
             # Update step
             pre_state, batches[i], log_data = pretrainer.step(
-                subkey, pre_state, batches[i]
+                subkey, pre_state.sharded, batches[i].sharded
             )
             # Logging
             log_data = jax.tree.map(lambda x: x.item(), log_data)
             log_data['time_step'] = time.perf_counter() - last_time
             logger.log(log_data, prefix='pretrain')
             last_time = time.perf_counter()
-    return pre_state.vmc_state, Systems.merge(batches).to_systems
+    return pre_state.vmc_state, Systems.merge(batches)
 
 
 def train(
@@ -97,7 +99,9 @@ def train(
         for i in range(len(batches)):
             key, subkey = jax.random.split(key)
             # Update step
-            state, batches[i], log_data = vmc.step(subkey, state, batches[i])
+            state, batches[i], log_data = vmc.step(
+                subkey, state.sharded, batches[i].sharded
+            )
             # Logging
             log_data = jax.tree.map(lambda x: x.item(), log_data)
             log_data['time_step'] = time.perf_counter() - last_time

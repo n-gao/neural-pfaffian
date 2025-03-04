@@ -17,6 +17,7 @@ from neural_pfaffian.nn.module import (
     ReparamModule,
 )
 from neural_pfaffian.systems import Systems, SystemsWithHF
+from neural_pfaffian.utils.jax_utils import jit
 
 
 class Parameters(TypedDict):
@@ -173,6 +174,7 @@ class GeneralizedWaveFunction(Generic[Orb, S], PyTreeNode):
         del params[REPARAM_KEY]
         return WaveFunctionParameters(params, meta_params)
 
+    @jit
     def reparams(self, params: WaveFunctionParameters, systems: Systems) -> PyTree[Array]:
         if self._reparam is not None:
             return self._reparam
@@ -195,15 +197,19 @@ class GeneralizedWaveFunction(Generic[Orb, S], PyTreeNode):
         }
         return wf_params
 
+    @jit
     def embedding(self, params: WaveFunctionParameters, systems: Systems):
         return self.wave_function.embedding(self.wf_params(params, systems), systems)
 
+    @jit
     def orbitals(self, params: WaveFunctionParameters, systems: Systems):
         return self.wave_function.orbitals(self.wf_params(params, systems), systems)
 
+    @jit
     def signed(self, params: WaveFunctionParameters, systems: Systems):
         return self.wave_function.signed(self.wf_params(params, systems), systems)
 
+    @jit
     def apply(
         self,
         params: WaveFunctionParameters,
@@ -214,6 +220,7 @@ class GeneralizedWaveFunction(Generic[Orb, S], PyTreeNode):
             self.wf_params(params, systems, reparams), systems
         )
 
+    @jit
     def batched_apply(
         self,
         params: WaveFunctionParameters,

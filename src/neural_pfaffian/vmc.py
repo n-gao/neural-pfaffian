@@ -16,9 +16,9 @@ from neural_pfaffian.nn.wave_function import (
 )
 from neural_pfaffian.preconditioner import Preconditioner
 from neural_pfaffian.systems import Systems
-from neural_pfaffian.utils import SerializeablePyTree
 from neural_pfaffian.utils.jax_utils import (
-    REPLICATE_SHARD,
+    REPLICATE_SPEC,
+    SerializeablePyTree,
     distribute_keys,
     jit,
     pmean,
@@ -47,10 +47,6 @@ class VMCState(Generic[PS], SerializeablePyTree):
     preconditioner: PS
     step: Integer[Array, '']
 
-    @property
-    def sharding(self):
-        return REPLICATE_SHARD
-
 
 class VMC(Generic[PS, O, OS], PyTreeNode):
     wave_function: GeneralizedWaveFunction[O, OS] = field(pytree_node=False)
@@ -70,8 +66,8 @@ class VMC(Generic[PS, O, OS], PyTreeNode):
 
     def init_systems(self, key: Array, systems: S) -> S:
         @shmap(
-            in_specs=(REPLICATE_SHARD, systems.sharding),
-            out_specs=systems.sharding,
+            in_specs=(REPLICATE_SPEC, systems.partition_spec),
+            out_specs=systems.partition_spec,
         )
         def init(key: Array, systems: S):
             key = distribute_keys(key)
@@ -99,8 +95,8 @@ class VMC(Generic[PS, O, OS], PyTreeNode):
     @jit
     def mcmc_step(self, key: Array, state: VMCState[PS], systems: Systems):
         @shmap(
-            in_specs=(REPLICATE_SHARD, state.sharding, systems.sharding),
-            out_specs=(systems.sharding, REPLICATE_SHARD),
+            in_specs=(REPLICATE_SPEC, state.partition_spec, systems.partition_spec),
+            out_specs=(systems.partition_spec, REPLICATE_SPEC),
             check_rep=False,
         )
         def _mcmc_step(key: Array, state: VMCState[PS], systems: Systems):
@@ -115,8 +111,8 @@ class VMC(Generic[PS, O, OS], PyTreeNode):
     @jit
     def step(self, key: Array, state: VMCState[PS], systems: Systems):
         @shmap(
-            in_specs=(REPLICATE_SHARD, state.sharding, systems.sharding),
-            out_specs=(state.sharding, systems.sharding, REPLICATE_SHARD),
+            in_specs=(REPLICATE_SPEC, state.partition_spec, systems.partition_spec),
+            out_specs=(state.partition_spec, systems.partition_spec, REPLICATE_SPEC),
             check_rep=False,
         )
         def _step(key: Array, state: VMCState[PS], systems: Systems):

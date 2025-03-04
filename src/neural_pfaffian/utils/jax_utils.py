@@ -5,34 +5,30 @@ https://github.com/deepmind/ferminet/tree/jax/ferminet
 """
 
 import functools
+from pathlib import Path
 from typing import Callable, ParamSpec, TypeVar, overload
 
 import jax
 import jax.numpy as jnp
+import jax.tree_util as jtu
 from chex import ArrayTree
+from flax.serialization import from_bytes, to_bytes
+from flax.struct import PyTreeNode
 from jax import core
-from jax.experimental import mesh_utils
 from jax.experimental.shard_map import shard_map
-from jax.sharding import Mesh
-from jax.sharding import PartitionSpec as P
+from jax.sharding import PartitionSpec, NamedSharding
 
-_BATCH_SHARD = 'qmc_batch'
+_BATCH_AXIS = 'qmc_batch'
 
 
-MESH = Mesh(mesh_utils.create_device_mesh((jax.device_count(),)), (_BATCH_SHARD,))
-BATCH_SHARD = P(_BATCH_SHARD)
-REPLICATE_SHARD = P()
+MESH = jax.make_mesh((jax.device_count(),), (_BATCH_AXIS,))
+BATCH_SPEC = PartitionSpec(_BATCH_AXIS)
+BATCH_SHARDING = NamedSharding(MESH, BATCH_SPEC)
+REPLICATE_SPEC = PartitionSpec()
+REPLICATE_SHARDING = NamedSharding(MESH, REPLICATE_SPEC)
 
 
 T = TypeVar('T')
-
-
-def replicate(pytree: T) -> T:
-    return jax.device_put(pytree, REPLICATE_SHARD)
-
-
-def broadcast(pytree: T) -> T:
-    return jax.device_put(pytree, BATCH_SHARD)
 
 
 def distribute_keys(key: jax.Array) -> jax.Array:
@@ -46,13 +42,13 @@ Tree = TypeVar('Tree', bound=ArrayTree)
 P = ParamSpec('P')
 R = TypeVar('R')
 
-pmean = functools.partial(jax.lax.pmean, axis_name=_BATCH_SHARD)
-psum = functools.partial(jax.lax.psum, axis_name=_BATCH_SHARD)
-pmax = functools.partial(jax.lax.pmax, axis_name=_BATCH_SHARD)
-pmin = functools.partial(jax.lax.pmin, axis_name=_BATCH_SHARD)
-pgather = functools.partial(jax.lax.all_gather, axis_name=_BATCH_SHARD)
-pall_to_all = functools.partial(jax.lax.all_to_all, axis_name=_BATCH_SHARD)
-pidx = functools.partial(jax.lax.axis_index, axis_name=_BATCH_SHARD)
+pmean = functools.partial(jax.lax.pmean, axis_name=_BATCH_AXIS)
+psum = functools.partial(jax.lax.psum, axis_name=_BATCH_AXIS)
+pmax = functools.partial(jax.lax.pmax, axis_name=_BATCH_AXIS)
+pmin = functools.partial(jax.lax.pmin, axis_name=_BATCH_AXIS)
+pgather = functools.partial(jax.lax.all_gather, axis_name=_BATCH_AXIS)
+pall_to_all = functools.partial(jax.lax.all_to_all, axis_name=_BATCH_AXIS)
+pidx = functools.partial(jax.lax.axis_index, axis_name=_BATCH_AXIS)
 
 
 C = TypeVar('C', bound=Callable)
@@ -62,7 +58,7 @@ def wrap_if_pmap(p_func: C) -> C:
     @functools.wraps(p_func)
     def p_func_if_pmap(obj: T, *args, **kwargs) -> T:
         try:
-            core.axis_frame(_BATCH_SHARD)
+            core.axis_frame(_BATCH_AXIS)
             return p_func(obj, *args, **kwargs)
         except NameError:
             return obj
@@ -163,3 +159,33 @@ def vmap(fun: C | None = None, *vmap_args, **vmap_kwargs) -> C | Callable[[C], C
         return inner_vmap
 
     return inner_vmap(fun)
+
+
+class SerializeablePyTree(PyTreeNode):
+    serialize = to_bytes
+    deserialize = from_bytes
+
+    def to_file(self, path: str | Path):
+        Path(path).open('wb').write(self.serialize())
+
+    def from_file(self, path: str | Path):
+        return self.deserialize(Path(path).read_bytes())
+
+    @property
+    def partition_spec(self):
+        return REPLICATE_SPEC
+
+    @property
+    def sharding(self):
+        def to_sharding(x: PartitionSpec):
+            return NamedSharding(MESH, x)
+
+        return jtu.tree_map(
+            to_sharding,
+            self.partition_spec,
+            is_leaf=lambda x: isinstance(x, PartitionSpec),
+        )
+
+    @property
+    def sharded(self):
+        return jax.device_put(self, self.sharding)

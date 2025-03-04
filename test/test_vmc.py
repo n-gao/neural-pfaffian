@@ -15,14 +15,18 @@ def test_dtypes(vmc_state: VMCState, vmc_systems: Systems):
 
 def test_mcmc(vmc: VMC, vmc_state: VMCState, vmc_systems: Systems):
     # Test one step
-    new_systems, aux_data = vmc.mcmc_step(jax.random.key(8), vmc_state, vmc_systems)
+    new_systems, aux_data = vmc.mcmc_step(
+        jax.random.key(8), vmc_state.sharded, vmc_systems.sharded
+    )
 
     assert_finite(new_systems)
     assert_finite(aux_data)
     assert_shape_and_dtype(new_systems, vmc_systems)
 
     # Test a second step
-    new_systems, aux_data = vmc.mcmc_step(jax.random.key(9), vmc_state, new_systems)
+    new_systems, aux_data = vmc.mcmc_step(
+        jax.random.key(9), vmc_state.sharded, new_systems.sharded
+    )
 
     assert_finite(new_systems)
     assert_finite(aux_data)
@@ -38,7 +42,9 @@ def test_energy(vmc: VMC, vmc_state: VMCState, vmc_systems: Systems):
 
 def test_step(vmc: VMC, vmc_state: VMCState, vmc_systems: Systems):
     # Test one step
-    new_state, new_systems, aux_data = vmc.step(jax.random.key(8), vmc_state, vmc_systems)
+    new_state, new_systems, aux_data = vmc.step(
+        jax.random.key(8), vmc_state.sharded, vmc_systems.sharded
+    )
 
     assert_finite(new_state)
     assert_finite(new_systems)
@@ -47,7 +53,9 @@ def test_step(vmc: VMC, vmc_state: VMCState, vmc_systems: Systems):
     assert_shape_and_dtype(new_systems, vmc_systems)
 
     # Test a second step
-    new_state, new_systems, aux_data = vmc.step(jax.random.key(9), new_state, new_systems)
+    new_state, new_systems, aux_data = vmc.step(
+        jax.random.key(9), new_state.sharded, new_systems.sharded
+    )
 
     assert_finite(new_state)
     assert_finite(new_systems)

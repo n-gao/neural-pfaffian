@@ -57,4 +57,7 @@ dev-dependencies = [
     "pytest-xdist>=3.6.1",
     "pytest>=8.3.3",
     "ruff>=0.6.9",
+    "tensorboard>=2.19.0",
+    "tensorflow>=2.19.0rc0",
+    "tensorboard-plugin-profile>=2.19.0",
 ]

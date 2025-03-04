@@ -21,8 +21,12 @@ from flax.struct import field
 from jaxtyping import Array, ArrayLike, Float, Integer, PyTree
 
 from neural_pfaffian.hf import HFOrbitalFn, make_hf_orbitals
-from neural_pfaffian.utils import adj_idx, merge_slices, unique, SerializeablePyTree
-from neural_pfaffian.utils.jax_utils import BATCH_SHARD, REPLICATE_SHARD
+from neural_pfaffian.utils import adj_idx, merge_slices, unique
+from neural_pfaffian.utils.jax_utils import (
+    BATCH_SPEC,
+    REPLICATE_SPEC,
+    SerializeablePyTree,
+)
 from neural_pfaffian.utils.tree_utils import tree_take
 
 Electrons = Float[Array, '... n_elec 3']
@@ -370,11 +374,11 @@ class Systems(Sequence['Systems'], SerializeablePyTree):
         return self.replace(electrons=0, nuclei=None, mol_data=None)
 
     @property
-    def sharding(self):
+    def partition_spec(self):
         return self.replace(
-            electrons=BATCH_SHARD,  # electons are batched per molecule
-            nuclei=REPLICATE_SHARD,  # nuclei are replicated
-            mol_data=REPLICATE_SHARD,  # molecule data is replicated
+            electrons=BATCH_SPEC,  # electons are batched per molecule
+            nuclei=REPLICATE_SPEC,  # nuclei are replicated
+            mol_data=REPLICATE_SPEC,  # molecule data is replicated
         )
 
     def pyscf_molecules(self, basis: str):
@@ -445,10 +449,10 @@ class Systems(Sequence['Systems'], SerializeablePyTree):
     def __len__(self):
         return self.n_mols
 
-    def __add__(self, other):
+    def __add__(self, other: Self) -> Self:
         if not isinstance(other, self.__class__):
             raise ValueError(f'Cannot add {self.__class__} with {type(other)}')
-        return Systems(
+        return self.__class__(
             self.spins + other.spins,
             self.charges + other.charges,
             jnp.concatenate([self.electrons, other.electrons], axis=-2),
@@ -460,15 +464,15 @@ class Systems(Sequence['Systems'], SerializeablePyTree):
             ),
         )
 
-    def __radd__(self, other):
+    def __radd__(self, other: Self) -> Self:
         return self + other
 
     @classmethod
-    def merge(cls, systems: Sequence[S]) -> S:
+    def merge(cls, systems: Sequence[Self]) -> Self:
         # each system is now a single molecule
         flat_systems = [s for sys in systems for s in sys.sub_configs]
         flat_systems = sorted(flat_systems)
-        return sum(flat_systems[1:], flat_systems[0])
+        return functools.reduce(cls.__add__, flat_systems)
 
     @classmethod
     def from_pyscf(cls, mol: pyscf.gto.Mole) -> Self:
@@ -534,8 +538,8 @@ class SystemsWithHF(Systems):
         return super().electron_vmap.replace(cache=None)
 
     @property
-    def sharding(self):
-        return super().sharding.replace(cache=REPLICATE_SHARD)
+    def partition_spec(self):
+        return super().partition_spec.replace(cache=REPLICATE_SPEC)
 
     @override
     def get_nth_molecule(self, idx: int) -> Self:

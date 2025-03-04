@@ -136,7 +136,7 @@ def embedding_model(request):
 
 @pytest.fixture(scope='module')
 def embedding_params(embedding_model: nn.Module, systems: Systems):
-    params = embedding_model.lazy_init(jax.random.key(42), systems)
+    params = embedding_model.init(jax.random.key(42), systems)
     return params
 
 

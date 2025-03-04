@@ -1,13 +1,11 @@
 from collections import defaultdict
 import logging
-from pathlib import Path
 from typing import Any, Callable, Generic, Self, Sequence, TypeVar
 
 import jax.numpy as jnp
 import jax.tree_util as jtu
 import numpy as np
 import numpy.typing as npt
-from flax.serialization import from_bytes, to_bytes
 from flax.struct import PyTreeNode
 from jaxtyping import Array, ArrayLike, Float
 
@@ -190,14 +188,3 @@ class Modules(dict[str, type[T]], Generic[T]):
             except Exception:
                 logging.warn(f'Failed to initialize {module}')
         return tuple(result)
-
-
-class SerializeablePyTree(PyTreeNode):
-    serialize = to_bytes
-    deserialize = from_bytes
-
-    def to_file(self, path: str | Path):
-        Path(path).open('wb').write(self.serialize())
-
-    def from_file(self, path: str | Path):
-        return self.deserialize(Path(path).read_bytes())
