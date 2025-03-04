@@ -6,6 +6,9 @@ jobs:
   # Run CLI test and pytest
   test:
     runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        group: [1, 2, 3, 4, 5]
     steps:
       # Checkout the code
       - uses: actions/checkout@v4
@@ -18,4 +21,4 @@ jobs:
       - name: Create virtual environment
         run: uv sync
       - name: pytest
-        run: uv run pytest
+        run: uv run pytest --splits 5 --group ${{ matrix.group }}
