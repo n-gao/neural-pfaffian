@@ -83,6 +83,9 @@ def main(
     logging.info('Initializing VMC state')
     key, subkey = jax.random.split(key)
     state = vmc.init(subkey, systems)
+    logging.info('Initializing VMC systems')
+    key, subkey = jax.random.split(key)
+    systems = vmc.init_systems(subkey, systems)
 
     # Init wandb
     logging.info('Initializing logger')

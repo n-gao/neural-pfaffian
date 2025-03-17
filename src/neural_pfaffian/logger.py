@@ -101,9 +101,9 @@ class FileLogger(LoggerAbc):
         return self.directory / f'{prefix}_log.csv'
 
     def logfile(self, prefix: str):
-        return self._log_files.setdefault(
-            prefix, LogFile(self.logfile_path(prefix), self.delimiter)
-        )
+        if prefix not in self._log_files:
+            self._log_files[prefix] = LogFile(self.logfile_path(prefix), self.delimiter)
+        return self._log_files[prefix]
 
     def update_config(self, config: dict[str, Any]) -> dict[str, Any]:
         config = deepcopy(config)

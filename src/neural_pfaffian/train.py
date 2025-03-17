@@ -20,11 +20,10 @@ def thermalize(
     batch_size: int,
     logger: Logger,
 ):
-    batches = list(map(Systems.merge, batch(systems, batch_size)))
-    # Initialize batches
     key, subkey = jax.random.split(key)
-    batch_keys = jax.random.split(subkey, len(batches))
-    batches = list(map(vmc.init_systems, batch_keys, batches))
+    systems = vmc.init_systems(subkey, systems)
+    # Batch
+    batches = list(map(Systems.merge, batch(systems, batch_size)))
 
     for _ in tqdm.trange(n_epochs):
         for i in range(len(batches)):
@@ -85,14 +84,10 @@ def train(
     batch_size: int,
     logger: Logger,
 ):
-    # Init systems
     key, subkey = jax.random.split(key)
     systems = vmc.init_systems(subkey, systems)
-    # Initialize batches
+    # Batch
     batches = list(map(Systems.merge, batch(systems, batch_size)))
-    key, subkey = jax.random.split(key)
-    batch_keys = jax.random.split(subkey, len(batches))
-    batches = list(map(vmc.init_systems, batch_keys, batches))
 
     last_time = time.perf_counter()
     for epoch in tqdm.trange(epochs):
