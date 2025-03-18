@@ -1,8 +1,12 @@
-from typing import Any, Sequence
+from typing import Any, Callable, Sequence, cast
 
+import jax
 import jax.numpy as jnp
 import jax.tree_util as jtu
 import optax
+from jaxtyping import Array, Float
+
+from neural_pfaffian.utils.jax_utils import pmean_if_pmap
 
 Transform = str | dict[str, Any] | tuple[str, *Sequence[Any]]
 TransformationConfig = Sequence[Transform]
@@ -95,3 +99,30 @@ def filter_by_param(name: str | Sequence[str], transformations: TransformationCo
 
 def make_optimizer(transformations: TransformationConfig):
     return optax.chain(*get_transformations(transformations))
+
+
+Loss = Float[Array, '']
+
+
+def optimize[T](
+    target: Callable[[T], Loss],
+    x: T,
+    optimizer: optax.GradientTransformation,
+    steps: int,
+):
+    def avg_loss_and_grad(x: T) -> tuple[Loss, T]:
+        return pmean_if_pmap(jax.value_and_grad(target)(x))
+
+    def step(state: tuple[T, optax.OptState], i) -> tuple[tuple[T, optax.OptState], Loss]:
+        params, opt_state = state
+        value, grads = avg_loss_and_grad(params)
+        updates, opt_state = optimizer.update(grads, opt_state, params)  # type: ignore
+        params = cast(T, optax.apply_updates(params, updates))  # type: ignore
+        return (params, opt_state), value
+
+    (x, _), loss = jax.lax.scan(
+        step,
+        (x, optimizer.init(x)),  # type: ignore
+        jnp.arange(steps),
+    )
+    return x, loss[-1]
