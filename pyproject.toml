@@ -53,14 +53,14 @@ required-version = ">=0.6.0"
 dev-dependencies = [
     "ipykernel>=6.29.5",
     "pre-commit>=4.0.1",
+    "pytest>=8.3.3",
     "pytest-env>=1.1.5",
     "pytest-xdist>=3.6.1",
-    "pytest>=8.3.3",
-    "ruff>=0.6.9",
+    "pytest-split>=0.10.0",
+    "ruff>=0.11.0",
     "tensorboard>=2.19.0",
     "tensorflow>=2.19.0rc0",
     "tensorboard-plugin-profile>=2.19.0",
-    "pytest-split>=0.10.0",
     "jax[cuda12]; sys_platform == 'linux'",
     "nvidia-cublas-cu12==12.6.1.4; sys_platform == 'linux'",
 ]
