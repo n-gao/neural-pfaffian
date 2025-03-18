@@ -61,6 +61,6 @@ dev-dependencies = [
     "tensorflow>=2.19.0rc0",
     "tensorboard-plugin-profile>=2.19.0",
     "pytest-split>=0.10.0",
-    "jax[cuda12]==0.4.38",
-    "nvidia-cublas-cu12==12.6.1.4",
+    "jax[cuda12]; sys_platform == 'linux'",
+    "nvidia-cublas-cu12==12.6.1.4; sys_platform == 'linux'",
 ]
