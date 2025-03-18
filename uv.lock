@@ -1112,10 +1112,9 @@ dependencies = [
     { name = "einops" },
     { name = "flax" },
     { name = "folx" },
-    { name = "jax", extra = ["cuda12"] },
+    { name = "jax" },
     { name = "jaxtyping" },
     { name = "numpy" },
-    { name = "nvidia-cublas-cu12" },
     { name = "optax" },
     { name = "pyscf" },
     { name = "seml", extra = ["ssh-forward"] },
@@ -1126,6 +1125,8 @@ dependencies = [
 [package.dev-dependencies]
 dev = [
     { name = "ipykernel" },
+    { name = "jax", extra = ["cuda12"] },
+    { name = "nvidia-cublas-cu12" },
     { name = "pre-commit" },
     { name = "pytest" },
     { name = "pytest-env" },
@@ -1142,10 +1143,9 @@ requires-dist = [
     { name = "einops", specifier = ">=0.8.0" },
     { name = "flax", specifier = ">=0.9.0" },
     { name = "folx", specifier = ">=0.2.15" },
-    { name = "jax", extras = ["cuda12"], specifier = "==0.4.38" },
+    { name = "jax", specifier = "==0.4.38" },
     { name = "jaxtyping", specifier = ">=0.2.34" },
     { name = "numpy", specifier = ">=2.1.2" },
-    { name = "nvidia-cublas-cu12", specifier = "==12.6.1.4" },
     { name = "optax", specifier = ">=0.2.4" },
     { name = "pyscf", specifier = ">=2.7.0" },
     { name = "seml", extras = ["ssh-forward"], specifier = ">=0.5.4" },
@@ -1156,6 +1156,8 @@ requires-dist = [
 [package.metadata.requires-dev]
 dev = [
     { name = "ipykernel", specifier = ">=6.29.5" },
+    { name = "jax", extras = ["cuda12"], specifier = "==0.4.38" },
+    { name = "nvidia-cublas-cu12", specifier = "==12.6.1.4" },
     { name = "pre-commit", specifier = ">=4.0.1" },
     { name = "pytest", specifier = ">=8.3.3" },
     { name = "pytest-env", specifier = ">=1.1.5" },

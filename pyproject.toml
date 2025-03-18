@@ -7,7 +7,7 @@ dependencies = [
     "einops>=0.8.0",
     "flax>=0.9.0",
     "folx>=0.2.15",
-    "jax[cuda12]==0.4.38",
+    "jax==0.4.38",
     "jaxtyping>=0.2.34",
     "numpy>=2.1.2",
     "optax>=0.2.4",
@@ -15,7 +15,6 @@ dependencies = [
     "seml[ssh_forward]>=0.5.4",
     "tqdm>=4.66.5",
     "wandb>=0.18.5",
-    "nvidia-cublas-cu12==12.6.1.4",
 ]
 license = { text = "MIT" }
 
@@ -62,4 +61,6 @@ dev-dependencies = [
     "tensorflow>=2.19.0rc0",
     "tensorboard-plugin-profile>=2.19.0",
     "pytest-split>=0.10.0",
+    "jax[cuda12]==0.4.38",
+    "nvidia-cublas-cu12==12.6.1.4",
 ]
