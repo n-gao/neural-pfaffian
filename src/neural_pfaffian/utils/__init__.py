@@ -11,10 +11,8 @@ from jaxtyping import Array, ArrayLike, Float
 
 from .jax_utils import jit
 
-T = TypeVar('T')
 
-
-def unique(
+def unique[T](
     items: Sequence[T],
 ) -> tuple[tuple[T, ...], tuple[list[int], ...], np.ndarray, tuple[int, ...]]:
     """
@@ -122,7 +120,7 @@ class EMA(Generic[T], PyTreeNode):
         )
 
 
-def batch(data: Sequence[T], n: int) -> list[Sequence[T]]:
+def batch[T](data: Sequence[T], n: int) -> list[Sequence[T]]:
     """
     Batches data into chunks of size n.
 
@@ -135,7 +133,7 @@ def batch(data: Sequence[T], n: int) -> list[Sequence[T]]:
     return [data[i : i + n] for i in range(0, len(data), n)]
 
 
-def itemgetter(*items: Any) -> Callable[[Sequence[T]], tuple[T, ...]]:
+def itemgetter[T](*items: Any) -> Callable[[Sequence[T]], tuple[T, ...]]:
     """
     Implementation of itemgetter that always returns a tuple.
 
@@ -151,10 +149,7 @@ def itemgetter(*items: Any) -> Callable[[Sequence[T]], tuple[T, ...]]:
     return g
 
 
-T = TypeVar('T')
-
-
-class Modules(dict[str, type[T]], Generic[T]):
+class Modules[T](dict[str, type[T]]):
     def init_or_none(self, module: str | None, **kwargs) -> T | None:
         if module is None:
             return None

@@ -109,7 +109,7 @@ def optimize[T](
     x: T,
     optimizer: optax.GradientTransformation,
     steps: int,
-):
+) -> tuple[T, Loss]:
     def avg_loss_and_grad(x: T) -> tuple[Loss, T]:
         return pmean_if_pmap(jax.value_and_grad(target)(x))
 

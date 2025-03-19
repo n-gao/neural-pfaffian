@@ -265,7 +265,7 @@ class Pfaffian(
                     orb_weight = pf_weight = 1
 
                 # Calculate loss
-                loss_val = jnp.zeros((), dtype=pf.dtype)
+                loss_val = jnp.zeros((), dtype=dtype)
                 loss_val += ((hf_orb_targets - orb) ** 2).mean() * orb_weight
                 loss_val += ((hf_pf_targets - pf) ** 2).mean() * pf_weight
                 return loss_val
@@ -276,7 +276,7 @@ class Pfaffian(
             loss_val = loss(state.value(), final=True)
             return loss_val, state
 
-        def stack(*x):
+        def stack(*x: Array):
             return jnp.stack(x)
 
         out_state: Sequence[EMA[PfaffianPretrainingState]] = []

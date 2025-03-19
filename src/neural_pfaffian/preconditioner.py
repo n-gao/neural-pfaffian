@@ -32,7 +32,7 @@ from neural_pfaffian.utils.tree_utils import (
 PS = TypeVar('PS')
 
 
-class Preconditioner(Protocol[PS]):
+class Preconditioner[PS](Protocol):
     def init(self, params: WaveFunctionParameters) -> PS: ...
 
     def apply(
