@@ -1,3 +1,4 @@
+import functools
 from typing import Sequence
 
 import einops
@@ -26,8 +27,20 @@ from neural_pfaffian.systems import Systems, SystemsWithHF, chunk_electron
 from neural_pfaffian.utils import EMA, itemgetter
 from neural_pfaffian.utils.jax_utils import vmap
 from neural_pfaffian.utils.optim import optimize
+from neural_pfaffian.utils.tree_utils import tree_stack
 
 from .utils import hf_to_full
+
+
+class PfaffianPretrainingState(PyTreeNode):
+    orbitals: Float[Array, 'n_orb n_orb']
+    pfaffian: Float[Array, 'n_el n_el']
+
+
+class PfaffianOrbitals(PyTreeNode):
+    orbitals: Float[Array, 'mols det elec orbitals']
+    antisymmetrizer: Float[Array, 'mols det orbitals orbitals']
+    orb_A_orb_product: Float[Array, 'mols det elec elec']
 
 
 def max_orbitals(orb_per_charge: dict[str, int]):
@@ -42,6 +55,66 @@ def orbital_mask(orb_per_charge: dict[str, int], charges: Sequence[int]):
             for orb in map(orb_per_charge.__getitem__, map(str, charges))
         ]
     )
+
+
+def _pfaffian_pretraining_loss(
+    hf_up: jax.Array,
+    hf_down: jax.Array,
+    pf_orbs: PfaffianOrbitals,
+    state: EMA[PfaffianPretrainingState],
+    orb_weight: float,
+    pf_weight: float,
+    learning_rate: float,
+    steps: int,
+    ema: float,
+):
+    dtype = hf_up.dtype
+    n_up, n_down = hf_up.shape[-2], hf_down.shape[-2]
+    n_el = n_up + n_down
+    n_orbs = pf_orbs.orbitals.shape[-1] // 2
+
+    # Add dimension for the number of determinants
+    if hf_up.ndim == pf_orbs.orbitals.ndim - 1:
+        hf_up = hf_up[..., None, :, :]
+        hf_down = hf_down[..., None, :, :]
+
+    # Prepare HF orbitals
+    hf_orb = hf_to_full(hf_up, hf_down, n_orbs)
+    # Prepare HF orbitals for the Pfaffian
+    # If the number of electrons is odd, we need to add a dummy electron
+    # W.l.o.g., we assume n_up >= n_down
+    hf_orb_pf = hf_to_full(hf_up, hf_down)
+    if (n_up + n_down) % 2 == 1:
+        eye = jnp.broadcast_to(
+            jnp.eye(n_el + 1, dtype=dtype),
+            (*hf_up.shape[:-2], n_el + 1, n_el + 1),
+        )
+        hf_orb_pf = eye.at[..., :n_el, :n_el].set(hf_orb_pf)
+
+    def loss(state: PfaffianPretrainingState, final: bool = False):
+        # Prepare HF targets
+        hf_T = cayley_transform(state.orbitals)
+        hf_A = to_skewsymmetric_orthogonal(state.pfaffian)
+        hf_orb_targets = hf_orb @ hf_T
+        hf_pf_targets = skewsymmetric_quadratic(hf_orb_pf, hf_A)
+        # Prepare NN outputs
+        orb, pf = pf_orbs.orbitals, pf_orbs.orb_A_orb_product
+        o_weight, p_weight = orb_weight, pf_weight
+        if not final:
+            orb, pf = jax.lax.stop_gradient((orb, pf))
+            o_weight = p_weight = 1
+
+        # Calculate loss
+        loss_val = jnp.zeros((), dtype=dtype)
+        loss_val += ((hf_orb_targets - orb) ** 2).mean() * o_weight
+        loss_val += ((hf_pf_targets - pf) ** 2).mean() * p_weight
+        return loss_val
+
+    optimizer = optax.contrib.prodigy(learning_rate)
+    x_new, _ = optimize(loss, state.value(), optimizer, steps)
+    state = state.update(x_new, ema)
+    loss_val = loss(state.value(), final=True)
+    return loss_val, state
 
 
 class PerNucOrbitals(ReparamModule):
@@ -99,17 +172,6 @@ class PerNucOrbitals(ReparamModule):
 
             result.append(_orbitals(emb, env, W))
         return result
-
-
-class PfaffianPretrainingState(PyTreeNode):
-    orbitals: Float[Array, 'n_orb n_orb']
-    pfaffian: Float[Array, 'n_el n_el']
-
-
-class PfaffianOrbitals(PyTreeNode):
-    orbitals: Float[Array, 'mols det elec orbitals']
-    antisymmetrizer: Float[Array, 'mols det orbitals orbitals']
-    orb_A_orb_product: Float[Array, 'mols det elec elec']
 
 
 class Pfaffian(
@@ -221,77 +283,26 @@ class Pfaffian(
         orbitals: list[PfaffianOrbitals],  # grouped by molecules
         state: Sequence[EMA[PfaffianPretrainingState]],  # list of molecules
     ):
-        @jax.vmap
-        def hf_match(
-            hf_up: jax.Array,
-            hf_down: jax.Array,
-            pf_orbs: PfaffianOrbitals,
-            state: EMA[PfaffianPretrainingState],
-        ):
-            dtype = hf_up.dtype
-            n_up, n_down = hf_up.shape[-2], hf_down.shape[-2]
-            n_el = n_up + n_down
-            n_orbs = pf_orbs.orbitals.shape[-1] // 2
-
-            # Add dimension for the number of determinants
-            if hf_up.ndim == pf_orbs.orbitals.ndim - 1:
-                hf_up = hf_up[..., None, :, :]
-                hf_down = hf_down[..., None, :, :]
-
-            # Prepare HF orbitals
-            hf_orb = hf_to_full(hf_up, hf_down, n_orbs)
-            # Prepare HF orbitals for the Pfaffian
-            # If the number of electrons is odd, we need to add a dummy electron
-            # W.l.o.g., we assume n_up >= n_down
-            hf_orb_pf = hf_to_full(hf_up, hf_down)
-            if (n_up + n_down) % 2 == 1:
-                eye = jnp.broadcast_to(
-                    jnp.eye(n_el + 1, dtype=dtype),
-                    (*hf_up.shape[:-2], n_el + 1, n_el + 1),
-                )
-                hf_orb_pf = eye.at[..., :n_el, :n_el].set(hf_orb_pf)
-
-            def loss(state: PfaffianPretrainingState, final: bool = False):
-                # Prepare HF targets
-                hf_T = cayley_transform(state.orbitals)
-                hf_A = to_skewsymmetric_orthogonal(state.pfaffian)
-                hf_orb_targets = hf_orb @ hf_T
-                hf_pf_targets = skewsymmetric_quadratic(hf_orb_pf, hf_A)
-                # Prepare NN outputs
-                orb, pf = pf_orbs.orbitals, pf_orbs.orb_A_orb_product
-                orb_weight, pf_weight = self.hf_match_orbitals, self.hf_match_pfaffian
-                if not final:
-                    orb, pf = jax.lax.stop_gradient((orb, pf))
-                    orb_weight = pf_weight = 1
-
-                # Calculate loss
-                loss_val = jnp.zeros((), dtype=dtype)
-                loss_val += ((hf_orb_targets - orb) ** 2).mean() * orb_weight
-                loss_val += ((hf_pf_targets - pf) ** 2).mean() * pf_weight
-                return loss_val
-
-            optimizer = optax.contrib.prodigy(self.hf_match_lr)
-            x_new, _ = optimize(loss, state.value(), optimizer, self.hf_match_steps)
-            state = state.update(x_new, self.hf_match_ema)
-            loss_val = loss(state.value(), final=True)
-            return loss_val, state
-
-        def stack(*x: Array):
-            return jnp.stack(x)
-
+        loss_fn = functools.partial(
+            _pfaffian_pretraining_loss,
+            orb_weight=self.hf_match_orbitals,
+            pf_weight=self.hf_match_pfaffian,
+            learning_rate=self.hf_match_lr,
+            steps=self.hf_match_steps,
+            ema=self.hf_match_ema,
+        )
+        # for orbitals, we expect to the see the molecules in the -4 dim. Thus, we should move it to the front
+        orbitals = jtu.tree_map(lambda x: jnp.moveaxis(x, -4, 0), orbitals)
         out_state: Sequence[EMA[PfaffianPretrainingState]] = []
         loss = jnp.zeros((), dtype=jnp.float32)
         for idx, pfaff_orbs in zip(systems.unique_indices, orbitals):
             getter = itemgetter(*idx)
             hf_orbs, state_i = getter(hf_orbitals), getter(state)
             # Stack the molecules in the first dimension
-            hf_up, hf_down = jtu.tree_map(stack, *hf_orbs)
-            state_i = jtu.tree_map(stack, *state_i)
-            # for pfaff_orbs, we expect to the see the molecules in the -4 dim. Thus, we should move it to the front
-            pfaff_orbs = jtu.tree_map(lambda x: jnp.moveaxis(x, -4, 0), pfaff_orbs)
+            (hf_up, hf_down), state_i = tree_stack(*hf_orbs), tree_stack(*state_i)
 
             # Matching
-            loss_i, state_i = hf_match(hf_up, hf_down, pfaff_orbs, state_i)
+            loss_i, state_i = jax.vmap(loss_fn)(hf_up, hf_down, pfaff_orbs, state_i)
             loss += loss_i.sum()
 
             # out_state is now sorted by the unique indices and not by the original batch!
