@@ -1,5 +1,3 @@
-import time
-
 import jax
 import optax
 import tqdm.auto as tqdm
@@ -28,10 +26,10 @@ def thermalize(
     for _ in tqdm.trange(n_epochs):
         for i in range(len(batches)):
             key, subkey = jax.random.split(key)
-            batches[i], aux_data = vmc.mcmc_step(
+            batches[i], log_data = vmc.mcmc_step(
                 subkey, state.sharded, batches[i].sharded
             )
-            logger.log(aux_data, prefix='mcmc')
+            logger.log(log_data, prefix='mcmc')
     return Systems.merge(batches)
 
 
@@ -59,7 +57,6 @@ def pretrain(
         key, subkey = jax.random.split(key)
         batches.append(pretrainer.init_systems(subkey, b.with_hf(basis)))
 
-    last_time = time.perf_counter()
     for epoch in tqdm.trange(epochs):
         for i in range(len(batches)):
             key, subkey = jax.random.split(key)
@@ -67,11 +64,7 @@ def pretrain(
             pre_state, batches[i], log_data = pretrainer.step(
                 subkey, pre_state.sharded, batches[i].sharded
             )
-            # Logging
-            log_data = jax.tree.map(lambda x: x.item(), log_data)
-            log_data['time_step'] = time.perf_counter() - last_time
             logger.log(log_data, prefix='pretrain')
-            last_time = time.perf_counter()
     return pre_state.vmc_state, Systems.merge(batches)
 
 
@@ -89,7 +82,6 @@ def train(
     # Batch
     batches = list(map(Systems.merge, batch(systems, batch_size)))
 
-    last_time = time.perf_counter()
     for epoch in tqdm.trange(epochs):
         for i in range(len(batches)):
             key, subkey = jax.random.split(key)
@@ -97,11 +89,7 @@ def train(
             state, batches[i], log_data = vmc.step(
                 subkey, state.sharded, batches[i].sharded
             )
-            # Logging
-            log_data = jax.tree.map(lambda x: x.item(), log_data)
-            log_data['time_step'] = time.perf_counter() - last_time
             logger.log(log_data, prefix='train')
-            last_time = time.perf_counter()
         if epoch % 100 == 0:
             logger.checkpoint(state, Systems.merge(batches))
     return state, Systems.merge(batches)

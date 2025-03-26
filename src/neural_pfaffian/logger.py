@@ -1,7 +1,10 @@
+from collections import defaultdict
 from copy import deepcopy
 from pathlib import Path
+import time
 from typing import Any
 
+import jax.tree_util as jtu
 import wandb
 import yaml
 
@@ -134,8 +137,12 @@ class FileLogger(LoggerAbc):
 class Logger:
     def __init__(self, logging_config):
         self.loggers = LOGGERS.try_init_many(logging_config)
+        self._last_log_times = defaultdict(time.perf_counter)
 
     def log(self, data: dict[str, Any], prefix: str | None = None):
+        data = jtu.tree_map(lambda x: x.item() if hasattr(x, 'item') else x, data)
+        data['time_step'] = time.perf_counter() - self._last_log_times[prefix]
+        self._last_log_times[prefix] = time.perf_counter()
         for logger in self.loggers:
             logger.log_data(data, prefix)
 
