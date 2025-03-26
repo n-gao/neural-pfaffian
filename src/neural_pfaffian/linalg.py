@@ -4,8 +4,9 @@ import jax
 import jax.numpy as jnp
 from jax._src.ad_util import SymbolicZero
 from jax.scipy.linalg import block_diag
+from jaxtyping import Array, Float
 
-from neural_pfaffian.utils.jax_utils import jit
+from neural_pfaffian.utils.jax_utils import jit, vectorize
 
 try:
     import folx
@@ -185,6 +186,22 @@ def inv_skewsymmetric_quadratic_jvp(primals, tangents):
 
 
 inv_skewsymmetric_quadratic = jit(inv_skewsymmetric_quadratic)
+
+
+@vectorize(signature='(n,n),(n,r)->(),()')
+def slog_pfaffian_with_updates(
+    X: Float[Array, 'n_el n_el'], B: Float[Array, 'n_el rank']
+):
+    # https://arxiv.org/pdf/2105.13098
+    # TODO: Write a test for this
+    # TODO: Add a custom jvp and folx for this
+    sign_X, logdet_X = slog_pfaffian(X)
+    assert B.shape[-1] % 2 == 0
+    C = jax.scipy.linalg.block_diag(*[jnp.array([[0, 1], [-1, 0]])] * (B.shape[-1] // 2))
+    C = C.astype(X.dtype)
+    Y = C.mT + (B.T @ jnp.linalg.solve(X, B))
+    sign_Y, logdet_Y = slog_pfaffian(Y)
+    return -sign_X * sign_Y, logdet_X + logdet_Y
 
 
 # TODO: add tests for this
