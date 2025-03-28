@@ -65,7 +65,7 @@ def pretrain(
                 subkey, pre_state.sharded, batches[i].sharded
             )
             logger.log(log_data, prefix='pretrain')
-    return pre_state.vmc_state, Systems.merge(batches)
+    return pre_state.vmc_state, SystemsWithHF.merge(batches).without_hf
 
 
 def train(

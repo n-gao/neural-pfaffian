@@ -192,7 +192,10 @@ inv_skewsymmetric_quadratic = jit(inv_skewsymmetric_quadratic)
 def skewsymmetric_inv(A: jax.Array) -> jax.Array:
     if A.shape[-1] == 2:
         eye = jnp.eye(2, dtype=A.dtype)
-        return (1 / (A + eye)) * (1 - eye)
+        return -(1 / (A + eye)) * (1 - eye)
+    elif A.shape[-1] % 2 == 1:
+        # These matrices are singular and cannot be inverted
+        return jnp.full_like(A, jnp.nan)
     return jnp.linalg.inv(A)
 
 
@@ -245,10 +248,17 @@ try:
             raise ValueError('Invalid number of arguments')
         if not isinstance(X, FwdLaplArray):
             return 0
-        if isinstance(A, FwdLaplArray):
-            A = A.x
-        jac = X.jacobian.dense_array
-        result = jnp.einsum('i...ab,...bc,i...dc->...ad', jac, A, jac)
+        result = jnp.zeros((1, 1), dtype=X.dtype)
+        if isinstance(X, FwdLaplArray):
+            A_ = A.x if isinstance(A, FwdLaplArray) else A
+            X_jac = X.jacobian.dense_array
+            result += jnp.einsum('i...ab,...bc,i...dc->...ad', X_jac, A_, X_jac)
+            if isinstance(A, FwdLaplArray):
+                A_jac = A.jacobian.dense_array
+                result += 2 * jnp.einsum('i...ab,i...bc,...dc->...ad', X_jac, A_jac, X.x)
+                jax.debug.print(
+                    '{x}', x=jnp.einsum('i...ab,i...bc,...dc->...ad', X_jac, A_jac, X.x)
+                )
         return result - result.mT
 
     def folx_slog_pfaffian_jac_hessian_jac(

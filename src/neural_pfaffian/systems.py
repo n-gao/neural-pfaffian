@@ -472,7 +472,7 @@ class Systems(Sequence['Systems'], SerializeablePyTree):
         # each system is now a single molecule
         flat_systems = [s for sys in systems for s in sys.sub_configs]
         flat_systems = sorted(flat_systems)
-        return functools.reduce(cls.__add__, flat_systems)
+        return sum(flat_systems[1:], flat_systems[0])
 
     @classmethod
     def from_pyscf(cls, mol: pyscf.gto.Mole) -> Self:
@@ -517,7 +517,7 @@ class SystemsWithHF(Systems):
     cache: tuple[PyTree[Array], ...]
 
     @property
-    def to_systems(self):
+    def without_hf(self):
         return Systems(
             self.spins, self.charges, self.electrons, self.nuclei, self.mol_data
         )
@@ -555,7 +555,7 @@ class SystemsWithHF(Systems):
             raise ValueError(f'Cannot add {self.__class__} with {type(other)}')
 
         return SystemsWithHF(
-            **vars(self.to_systems + other.to_systems),
+            **vars(self.without_hf + other.without_hf),
             hf_functions=self.hf_functions + other.hf_functions,
             cache=self.cache + other.cache,
         )
