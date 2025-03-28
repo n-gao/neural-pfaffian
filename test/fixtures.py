@@ -7,6 +7,7 @@ import pytest
 
 from neural_pfaffian.clipping import MedianClipping
 from neural_pfaffian.mcmc import MetropolisHastings
+from neural_pfaffian.nn.antisymmetrizer.low_rank_pfaffian import LowRankPfaffian
 from neural_pfaffian.nn.antisymmetrizer.slater import RestrictedSlater
 from neural_pfaffian.nn.embedding import FermiNet, PsiFormer, Moon
 from neural_pfaffian.nn.antisymmetrizer import Pfaffian, Slater
@@ -196,7 +197,25 @@ def restricted_slater(envelope):
     return RestrictedSlater(2, envelope)
 
 
-@pytest.fixture(scope='module', params=['pfaffian', 'slater', 'restricted_slater'])
+@pytest.fixture(scope='module')
+def low_rank_pfaffian(envelope):
+    return LowRankPfaffian(
+        2,
+        {'1': 2, '2': 2, '3': 5, '4': 5, '5': 5, '6': 5, '7': 5, '8': 5, '9': 5, '10': 5},
+        envelope,
+        2,
+        2,
+        0.1,
+        1.0,
+        1.0,
+        0.99,
+    )
+
+
+@pytest.fixture(
+    scope='module',
+    params=['pfaffian', 'low_rank_pfaffian', 'slater', 'restricted_slater'],
+)
 def antisymmetrizer(request, envelope):
     # envelope must be here since the antisymmetrizer depend on it
     return request.getfixturevalue(request.param)
@@ -208,6 +227,21 @@ def singular_pfaffian(efficient_envelope):
         2,
         {'1': 2, '2': 2, '3': 5, '4': 5, '5': 5, '6': 5, '7': 5, '8': 5, '9': 5, '10': 5},
         efficient_envelope,
+        2,
+        0.1,
+        1.0,
+        1.0,
+        0.99,
+    )
+
+
+@pytest.fixture(scope='session')
+def singular_lr_pfaffian(efficient_envelope):
+    return LowRankPfaffian(
+        2,
+        {'1': 2, '2': 2, '3': 5, '4': 5, '5': 5, '6': 5, '7': 5, '8': 5, '9': 5, '10': 5},
+        efficient_envelope,
+        2,
         2,
         0.1,
         1.0,
@@ -228,7 +262,12 @@ def singular_restricted_slater(efficient_envelope):
 
 @pytest.fixture(
     scope='module',
-    params=['singular_pfaffian', 'singular_slater', 'singular_restricted_slater'],
+    params=[
+        'singular_pfaffian',
+        'singular_lr_pfaffian',
+        'singular_slater',
+        'singular_restricted_slater',
+    ],
 )
 def singular_antisymmetrizer(request, efficient_envelope):
     # envelope must be here since orbitals depend on it

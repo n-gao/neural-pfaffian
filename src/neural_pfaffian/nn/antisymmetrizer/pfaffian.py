@@ -21,7 +21,6 @@ from neural_pfaffian.linalg import (
 )
 from neural_pfaffian.nn.envelope import Envelope
 from neural_pfaffian.nn.module import ParamTypes, ReparamModule
-from neural_pfaffian.nn.utils import block
 from neural_pfaffian.nn.wave_function import AntisymmetrizerP
 from neural_pfaffian.systems import Systems, SystemsWithHF, chunk_electron
 from neural_pfaffian.utils import EMA, itemgetter
@@ -78,8 +77,6 @@ def _pfaffian_pretraining_loss(
         hf_up = hf_up[..., None, :, :]
         hf_down = hf_down[..., None, :, :]
 
-    # Prepare HF orbitals
-    hf_orb = hf_to_full(hf_up, hf_down, n_orbs)
     # Prepare HF orbitals for the Pfaffian
     # If the number of electrons is odd, we need to add a dummy electron
     # W.l.o.g., we assume n_up >= n_down
@@ -90,6 +87,9 @@ def _pfaffian_pretraining_loss(
             (*hf_up.shape[:-2], n_el + 1, n_el + 1),
         )
         hf_orb_pf = eye.at[..., :n_el, :n_el].set(hf_orb_pf)
+    # Pad with zeros
+    to_pad = jnp.zeros((*hf_orb_pf.shape[:-1], 2 * n_orbs - hf_orb_pf.shape[-1]), dtype)
+    hf_orb = jnp.concatenate([hf_orb_pf, to_pad], axis=-1)
 
     def loss(state: PfaffianPretrainingState, final: bool = False):
         # Prepare HF targets
@@ -208,17 +208,18 @@ class Pfaffian(
             n_det, self.orb_per_charge, self.envelope.copy(pi_init=1e-3, keep_distr=True)
         )(systems, elec_embeddings)
         # If n_elec is odd, we need an extra orbital
-        fill_orbs = PerNucOrbitals(
-            n_det,
-            jtu.tree_map(lambda _: 1, self.orb_per_charge),
-            self.envelope.copy(pi_init=1.0, keep_distr=False),
-        )(systems, elec_embeddings)
+        fill_vec, fill_vec_meta = self.reparam(
+            'fill_coeffs',
+            jax.nn.initializers.normal(1, dtype=jnp.float32),
+            (systems.n_nuc, 2 * max_orb, n_det),
+            param_type=ParamTypes.NUCLEI,
+        )
 
         result: list[PfaffianOrbitals] = []
         for diag, offdiag, fill, A, (spins, charges) in zip(
             same_orbs,
             diff_orbs,
-            fill_orbs,
+            systems.group(fill_vec, fill_vec_meta.param_type.value.chunk_fn),
             systems.group(A, A_meta.param_type.value.chunk_fn),
             systems.unique_spins_and_charges,
         ):
@@ -237,6 +238,10 @@ class Pfaffian(
                     ],
                     axis=0,
                 )  # (n_elec, 2*n_orbs)
+                # Pad additional orbital if n_elec is odd
+                if n_elec % 2 == 1:
+                    fill = fill.reshape(1, -1)[:, np.repeat(orb_mask, 2)]
+                    orbitals = jnp.concatenate([orbitals, fill], axis=0)
 
                 # A: (2*n_orbs, 2*n_orbs)
                 A = einops.rearrange(A, '(n1 n2) o1 o2 -> (n1 o1) (n2 o2)', n1=n_nuc)
@@ -246,12 +251,6 @@ class Pfaffian(
 
                 # Product
                 orb_A_orb_product = skewsymmetric_quadratic(orbitals, A)
-                # Pad additional orbital if n_elec is odd
-                if n_elec % 2 == 1:
-                    fill = einops.einsum(fill, 'elec orb -> elec')
-                    orb_A_orb_product = block(
-                        orb_A_orb_product, fill, -fill, jnp.zeros((), dtype=fill.dtype)
-                    )
                 return PfaffianOrbitals(orbitals, A, orb_A_orb_product)
 
             result.append(_orbitals(diag, offdiag, A, fill))

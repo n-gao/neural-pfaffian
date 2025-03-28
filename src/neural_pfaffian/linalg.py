@@ -8,11 +8,6 @@ from jaxtyping import Array, Float
 
 from neural_pfaffian.utils.jax_utils import jit, vectorize
 
-try:
-    import folx
-except ImportError:
-    folx = None
-
 
 @jit
 def householder(x: jax.Array) -> tuple[jax.Array, jax.Array, jax.Array]:
@@ -42,6 +37,10 @@ def slog_pfaffian(A: jax.Array) -> tuple[jax.Array, jax.Array]:
     if n % 2 == 1:
         return jnp.ones((), dtype=out_dtype), jnp.array(-jnp.inf, dtype=out_dtype)
 
+    if n == 2:
+        A = A[0, 1]
+        return jnp.sign(A).astype(out_dtype), jnp.log(jnp.abs(A)).astype(out_dtype)
+
     sign_pfaffian = jnp.ones((), dtype=dtype)
     log_pfaffian = jnp.zeros((), dtype=dtype)
 
@@ -66,7 +65,12 @@ def slog_pfaffian_jvp(primals, tangents):
     (A,) = primals
     (A_dot,) = tangents
     sign_pfaffian, log_pfaffian = slog_pfaffian(A)
-    det_dot = jnp.einsum('...ij,...ji->...', jnp.linalg.inv(A), A_dot)
+    if A.shape[-1] == 2:
+        eye = jnp.eye(2, dtype=A.dtype)
+        A_inv = (1 / (A + eye)) * (1 - eye)
+    else:
+        A_inv = jnp.linalg.inv(A)
+    det_dot = jnp.einsum('...ij,...ji->...', A_inv, A_dot)
     sign_dot = jnp.zeros_like(sign_pfaffian)
     pfaffian_dot = det_dot / 2
     return (sign_pfaffian, log_pfaffian), (sign_dot, pfaffian_dot)
@@ -188,38 +192,62 @@ def inv_skewsymmetric_quadratic_jvp(primals, tangents):
 inv_skewsymmetric_quadratic = jit(inv_skewsymmetric_quadratic)
 
 
+@jax.custom_jvp
+def inv(A: jax.Array) -> jax.Array:
+    return jnp.linalg.inv(A)
+
+
+@inv.defjvp
+def inv_jvp(primals, tangents):
+    (A,) = primals
+    (A_dot,) = tangents
+    A_inv = inv(A)
+    return A_inv, -A_inv @ A_dot @ A_inv
+
+
+inv = jit(inv)
+
+
+def antisymmetric_block_diagonal(n: int, dtype: jnp.dtype = jnp.float32):
+    return block_diag(*[jnp.array([[0, 1], [-1, 0]], dtype=dtype)] * n)
+
+
 @vectorize(signature='(n,n),(n,r)->(),()')
 def slog_pfaffian_with_updates(
     X: Float[Array, 'n_el n_el'], B: Float[Array, 'n_el rank']
 ):
     # https://arxiv.org/pdf/2105.13098
-    # TODO: Write a test for this
-    # TODO: Add a custom jvp and folx for this
     sign_X, logdet_X = slog_pfaffian(X)
     assert B.shape[-1] % 2 == 0
-    C = jax.scipy.linalg.block_diag(*[jnp.array([[0, 1], [-1, 0]])] * (B.shape[-1] // 2))
-    C = C.astype(X.dtype)
-    Y = C.mT + (B.T @ jnp.linalg.solve(X, B))
+    C = antisymmetric_block_diagonal(B.shape[-1] // 2, dtype=X.dtype)
+    Y = C.mT + skewsymmetric_quadratic(B.T, inv(X))
     sign_Y, logdet_Y = slog_pfaffian(Y)
     return -sign_X * sign_Y, logdet_X + logdet_Y
 
 
 # TODO: add tests for this
 # Here we define the functions for folx such that we can use the forward-laplacian
-if folx is not None:
-    from folx.api import FunctionFlags
+try:
+    import folx
+    from folx.api import FunctionFlags, FwdLaplArray, FwdLaplArgs
     from folx.custom_hessian import slogdet_jac_hessian_jac
 
     def skewsymmetric_quadratic_jac_hessian_jac(
-        args,
+        args: FwdLaplArgs,
         extra_args,
         merge,
         materialize_idx,
     ):
-        (X,), A = merge(args, extra_args)
-        assert isinstance(A, jax.Array), (
-            'Laplacian for A being a function of X is not supported'
-        )
+        if len(args.arrays) == 1:
+            (X,), A = merge(args, extra_args)
+        elif len(args) == 2:
+            X, A = args.arrays
+        else:
+            raise ValueError('Invalid number of arguments')
+        if not isinstance(X, FwdLaplArray):
+            return 0
+        if isinstance(A, FwdLaplArray):
+            A = A.x
         jac = X.jacobian.dense_array
         result = jnp.einsum('i...ab,...bc,i...dc->...ad', jac, A, jac)
         return result - result.mT
@@ -268,6 +296,16 @@ if folx is not None:
         'slog_pfaffian_skewsymmetric_quadratic',
         folx_slog_pfaffian_skewsymmetric_quadratic,
     )
+    folx.register_function(
+        'inv',
+        folx.wrap_forward_laplacian(
+            inv,
+            name='inv',
+            in_axes=(-2, -1),
+        ),
+    )
+except ImportError:
+    pass
 
 
 def cayley_transform(x: jax.Array) -> jax.Array:
@@ -279,5 +317,5 @@ def cayley_transform(x: jax.Array) -> jax.Array:
 
 def to_skewsymmetric_orthogonal(x: jax.Array):
     # The skew-symmetric identity matrix
-    J = block_diag(*[jnp.array([[0, 1], [-1, 0]], dtype=x.dtype)] * (x.shape[-1] // 2))
+    J = antisymmetric_block_diagonal(x.shape[-1] // 2, dtype=x.dtype)
     return skewsymmetric_quadratic(cayley_transform(x), J)

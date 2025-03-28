@@ -1,3 +1,4 @@
+import functools
 from typing import Sequence
 
 import einops
@@ -5,32 +6,54 @@ import flax.linen as nn
 import jax
 import jax.numpy as jnp
 import jax.tree_util as jtu
+import numpy as np
 from flax.struct import PyTreeNode
 from jaxtyping import Array, Float
 
 from neural_pfaffian.hf import HFOrbitals
-from neural_pfaffian.linalg import skewsymmetric_quadratic, slog_pfaffian_with_updates
+from neural_pfaffian.linalg import (
+    antisymmetric_block_diagonal,
+    skewsymmetric_quadratic,
+    slog_pfaffian_with_updates,
+)
 from neural_pfaffian.nn.antisymmetrizer.pfaffian import (
     PerNucOrbitals,
+    PfaffianOrbitals,
     PfaffianPretrainingState,
+    _pfaffian_pretraining_loss,
     max_orbitals,
     orbital_mask,
 )
 from neural_pfaffian.nn.envelope import Envelope
 from neural_pfaffian.nn.module import ParamTypes, ReparamModule
-from neural_pfaffian.nn.utils import block
 from neural_pfaffian.nn.wave_function import AntisymmetrizerP
 from neural_pfaffian.systems import Systems, SystemsWithHF
-from neural_pfaffian.utils import EMA
+from neural_pfaffian.utils import EMA, itemgetter
 from neural_pfaffian.utils.jax_utils import vmap
+from neural_pfaffian.utils.tree_utils import tree_stack
 
 
 class LowRankPfaffianOrbitals(PyTreeNode):
     orbitals: Float[Array, 'mols elec orbitals']
     antisymmetrizer: Float[Array, 'mols orbitals orbitals']
-    antisymmetrizer_updates: Float[Array, 'mols orbitals rank det']
+    antisymmetrizer_updates: Float[Array, 'mols det orbitals rank']
     orb_A_orb_product: Float[Array, 'mols elec elec']
     updates: Float[Array, 'mols det elec rank']
+
+    def to_pfaffian_orbitals(self):
+        A = jnp.expand_dims(self.antisymmetrizer, axis=-3)
+        updates = self.antisymmetrizer_updates
+        rank = updates.shape[-1]
+        J = antisymmetric_block_diagonal(rank // 2, updates.dtype)
+        As = A + skewsymmetric_quadratic(updates, J)
+        orbitals = jnp.expand_dims(self.orbitals, axis=-3)
+        orb_A_orb_product = jnp.expand_dims(self.orb_A_orb_product, axis=-3)
+        orb_A_orb_product += skewsymmetric_quadratic(self.updates, J)
+        return PfaffianOrbitals(
+            orbitals=orbitals,
+            antisymmetrizer=As,
+            orb_A_orb_product=orb_A_orb_product,
+        )
 
 
 class LowRankPfaffian(
@@ -50,7 +73,6 @@ class LowRankPfaffian(
 
     @nn.compact
     def __call__(self, systems: Systems, elec_embeddings: Float[Array, 'electrons dim']):
-        n_det = self.determinants
         max_orb = max_orbitals(self.orb_per_charge)
         A, A_meta = self.reparam(
             'antisymmetrizer',
@@ -75,25 +97,27 @@ class LowRankPfaffian(
             1, self.orb_per_charge, self.envelope.copy(pi_init=1e-3, keep_distr=True)
         )(systems, elec_embeddings)
         # If n_elec is odd, we need an extra orbital
-        fill_orbs = PerNucOrbitals(
-            1,
-            jtu.tree_map(lambda _: n_det, self.orb_per_charge),
-            self.envelope.copy(pi_init=1.0, keep_distr=False),
-        )(systems, elec_embeddings)
+        fill_vec, fill_vec_meta = self.reparam(
+            'fill_coeffs',
+            jax.nn.initializers.normal(1, dtype=jnp.float32),
+            (systems.n_nuc, 2 * max_orb),
+            param_type=ParamTypes.NUCLEI,
+        )
 
         result: list[LowRankPfaffianOrbitals] = []
         for diag, offdiag, fill, A, A_updates, (spins, charges) in zip(
             same_orbs,
             diff_orbs,
-            fill_orbs,
+            systems.group(fill_vec, fill_vec_meta.param_type.value.chunk_fn),
             systems.group(A, A_meta.param_type.value.chunk_fn),
             systems.group(A_updates, A_updates_meta.param_type.value.chunk_fn),
             systems.unique_spins_and_charges,
         ):
             n_elec, n_up, n_nuc = sum(spins), spins[0], len(charges)
             orb_mask = orbital_mask(self.orb_per_charge, charges)
+            full_mask = np.repeat(orb_mask, 2)
             # squeeze out the determinants
-            diag, offdiag, fill = diag.squeeze(-1), offdiag.squeeze(-1), fill.squeeze(-1)
+            diag, offdiag = diag.squeeze(-1), offdiag.squeeze(-1)
 
             @vmap  # vmap over different molecules
             def _orbitals(
@@ -108,26 +132,25 @@ class LowRankPfaffian(
                     ],
                     axis=0,
                 )  # (n_elec, 2*n_orbs)
+                # Pad additional orbital if n_elec is odd
+                if n_elec % 2 == 1:
+                    fill = fill.reshape(1, -1)[:, full_mask]
+                    orbitals = jnp.concatenate([orbitals, fill], axis=0)
 
                 # A: (2*n_orbs, 2*n_orbs)
                 A = einops.rearrange(A, '(n1 n2) o1 o2 -> (n1 o1) (n2 o2)', n1=n_nuc)
                 A = A[orb_mask, :][:, orb_mask]  # remove unused orbitals
                 A_diag, A_offdiag = (A - A.mT) / 2, (A + A.mT) / 2
                 A = jnp.block([[A_diag, A_offdiag], [-A_offdiag, A_diag]])
-                A_updates = einops.rearrange(
-                    A_updates, 'nuc orb two rank det -> (two nuc orb) rank det'
-                )
-                updates = jnp.einsum('no,ord->dnr', orbitals, A_updates)
 
                 # Product
                 orb_A_orb_product = skewsymmetric_quadratic(orbitals, A)
 
-                # Pad additional orbital if n_elec is odd
-                if n_elec % 2 == 1:
-                    fill = einops.einsum(fill, 'elec orb -> elec')
-                    orb_A_orb_product = block(
-                        orb_A_orb_product, fill, -fill, jnp.zeros((), dtype=fill.dtype)
-                    )
+                # Updates
+                A_updates = einops.rearrange(
+                    A_updates, 'nuc orb two rank det -> det (two nuc orb) rank'
+                )[:, full_mask]
+                updates = jnp.einsum('no,dor->dnr', orbitals, A_updates)
                 return LowRankPfaffianOrbitals(
                     orbitals, A, A_updates, orb_A_orb_product, updates
                 )
@@ -157,7 +180,36 @@ class LowRankPfaffian(
         orbitals: list[LowRankPfaffianOrbitals],  # grouped by molecules
         state: Sequence[EMA[PfaffianPretrainingState]],  # list of molecules
     ):
-        raise NotImplementedError
+        loss_fn = functools.partial(
+            _pfaffian_pretraining_loss,
+            orb_weight=self.hf_match_orbitals,
+            pf_weight=self.hf_match_pfaffian,
+            learning_rate=self.hf_match_lr,
+            steps=self.hf_match_steps,
+            ema=self.hf_match_ema,
+        )
+        out_state: Sequence[EMA[PfaffianPretrainingState]] = []
+        loss = jnp.zeros((), dtype=jnp.float32)
+        for idx, pfaff_orbs in zip(systems.unique_indices, orbitals):
+            getter = itemgetter(*idx)
+            hf_orbs, state_i = getter(hf_orbitals), getter(state)
+            # Stack the molecules in the first dimension
+            (hf_up, hf_down), state_i = tree_stack(*hf_orbs), tree_stack(*state_i)
+
+            pfaff_orbs = pfaff_orbs.to_pfaffian_orbitals()
+            # for orbitals, we expect to the see the molecules in the -4 dim. Thus, we should move it to the front
+            pfaff_orbs = jtu.tree_map(lambda x: jnp.moveaxis(x, -4, 0), pfaff_orbs)
+
+            # Matching
+            loss_i, state_i = jax.vmap(loss_fn)(hf_up, hf_down, pfaff_orbs, state_i)
+            loss += loss_i.sum()
+
+            # out_state is now sorted by the unique indices and not by the original batch!
+            for i in range(len(idx)):
+                out_state.append(jtu.tree_map(lambda x: x[i], state_i))
+        # invert the order of the unique indices
+        out_state = itemgetter(*systems.inverse_unique_indices)(out_state)
+        return loss / systems.n_mols, out_state
 
     def init_systems(self, key: Array, systems: SystemsWithHF):
         states: list[EMA[PfaffianPretrainingState]] = []
