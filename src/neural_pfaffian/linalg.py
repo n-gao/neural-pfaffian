@@ -256,9 +256,6 @@ try:
             if isinstance(A, FwdLaplArray):
                 A_jac = A.jacobian.dense_array
                 result += 2 * jnp.einsum('i...ab,i...bc,...dc->...ad', X_jac, A_jac, X.x)
-                jax.debug.print(
-                    '{x}', x=jnp.einsum('i...ab,i...bc,...dc->...ad', X_jac, A_jac, X.x)
-                )
         return result - result.mT
 
     def folx_slog_pfaffian_jac_hessian_jac(
