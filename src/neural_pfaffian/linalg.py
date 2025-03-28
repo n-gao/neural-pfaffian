@@ -65,11 +65,7 @@ def slog_pfaffian_jvp(primals, tangents):
     (A,) = primals
     (A_dot,) = tangents
     sign_pfaffian, log_pfaffian = slog_pfaffian(A)
-    if A.shape[-1] == 2:
-        eye = jnp.eye(2, dtype=A.dtype)
-        A_inv = (1 / (A + eye)) * (1 - eye)
-    else:
-        A_inv = jnp.linalg.inv(A)
+    A_inv = skewsymmetric_inv(A)
     det_dot = jnp.einsum('...ij,...ji->...', A_inv, A_dot)
     sign_dot = jnp.zeros_like(sign_pfaffian)
     pfaffian_dot = det_dot / 2
@@ -169,7 +165,7 @@ slog_pfaffian_skewsymmetric_quadratic = jit(slog_pfaffian_skewsymmetric_quadrati
 @jax.custom_jvp
 def inv_skewsymmetric_quadratic(x: jax.Array, A: jax.Array) -> jax.Array:
     xAx = skewsymmetric_quadratic(x, A)
-    result = jnp.linalg.inv(xAx.astype(jnp.float64)).astype(xAx.dtype)
+    result = skewsymmetric_inv(xAx.astype(jnp.float64)).astype(xAx.dtype)
     if result.dtype != jnp.float64:
         return (result - result.mT) / 2
     return result
@@ -193,19 +189,22 @@ inv_skewsymmetric_quadratic = jit(inv_skewsymmetric_quadratic)
 
 
 @jax.custom_jvp
-def inv(A: jax.Array) -> jax.Array:
+def skewsymmetric_inv(A: jax.Array) -> jax.Array:
+    if A.shape[-1] == 2:
+        eye = jnp.eye(2, dtype=A.dtype)
+        return (1 / (A + eye)) * (1 - eye)
     return jnp.linalg.inv(A)
 
 
-@inv.defjvp
-def inv_jvp(primals, tangents):
+@skewsymmetric_inv.defjvp
+def skewsymmetric_inv_jvp(primals, tangents):
     (A,) = primals
     (A_dot,) = tangents
-    A_inv = inv(A)
-    return A_inv, -A_inv @ A_dot @ A_inv
+    A_inv = skewsymmetric_inv(A)
+    return A_inv, skewsymmetric_quadratic(A_inv, A_dot)
 
 
-inv = jit(inv)
+skewsymmetric_inv = jit(skewsymmetric_inv)
 
 
 def antisymmetric_block_diagonal(n: int, dtype: jnp.dtype = jnp.float32):
@@ -220,7 +219,7 @@ def slog_pfaffian_with_updates(
     sign_X, logdet_X = slog_pfaffian(X)
     assert B.shape[-1] % 2 == 0
     C = antisymmetric_block_diagonal(B.shape[-1] // 2, dtype=X.dtype)
-    Y = C.mT + skewsymmetric_quadratic(B.T, inv(X))
+    Y = C.mT + skewsymmetric_quadratic(B.T, skewsymmetric_inv(X))
     sign_Y, logdet_Y = slog_pfaffian(Y)
     return -sign_X * sign_Y, logdet_X + logdet_Y
 
@@ -297,9 +296,9 @@ try:
         folx_slog_pfaffian_skewsymmetric_quadratic,
     )
     folx.register_function(
-        'inv',
+        'skewsymmetric_inv',
         folx.wrap_forward_laplacian(
-            inv,
+            skewsymmetric_inv,
             name='inv',
             in_axes=(-2, -1),
         ),
