@@ -229,7 +229,7 @@ class Spring(PyTreeNode, Preconditioner[SpringState]):
             jac = jnp.concatenate(jacs, axis=1)[:, systems.inverse_unique_indices]
             n_params = jac.shape[-1]
             # check for parameters that are not split evenly across devices
-            num_even = n_params // n_dev * n_dev
+            num_even = (n_params // n_dev) * n_dev
             jac, remainder = jac[..., :num_even], jac[..., num_even:]
             jac = pall_to_all(jac, split_axis=2, concat_axis=0, tiled=True)
             jac -= jac.mean(axis=0)

@@ -81,15 +81,23 @@ def _pfaffian_pretraining_loss(
     # If the number of electrons is odd, we need to add a dummy electron
     # W.l.o.g., we assume n_up >= n_down
     hf_orb_pf = hf_to_full(hf_up, hf_down)
+    hf_orb = hf_to_full(hf_up, hf_down, n_orbs)
     if (n_up + n_down) % 2 == 1:
         eye = jnp.broadcast_to(
             jnp.eye(n_el + 1, dtype=dtype),
             (*hf_up.shape[:-2], n_el + 1, n_el + 1),
         )
         hf_orb_pf = eye.at[..., :n_el, :n_el].set(hf_orb_pf)
-    # Pad with zeros
-    to_pad = jnp.zeros((*hf_orb_pf.shape[:-1], 2 * n_orbs - hf_orb_pf.shape[-1]), dtype)
-    hf_orb = jnp.concatenate([hf_orb_pf, to_pad], axis=-1)
+        assert hf_orb.shape[-1] > (n_up + n_down) * 2, 'Not enough orbitals to pad.'
+        hf_orb = jnp.concatenate(
+            [
+                hf_orb,
+                jnp.zeros((*hf_orb.shape[:-2], 1, n_orbs), dtype=dtype)
+                .at[..., -1]
+                .set(1),
+            ],
+            axis=-2,
+        )
 
     def loss(state: PfaffianPretrainingState, final: bool = False):
         # Prepare HF targets
