@@ -16,7 +16,6 @@ from neural_pfaffian.linalg import (
     cayley_transform,
     skewsymmetric_quadratic,
     slog_pfaffian,
-    slog_pfaffian_skewsymmetric_quadratic,
     to_skewsymmetric_orthogonal,
 )
 from neural_pfaffian.nn.envelope import Envelope
@@ -106,7 +105,7 @@ def _pfaffian_pretraining_loss(
         hf_orb_targets = hf_orb @ hf_T
         hf_pf_targets = skewsymmetric_quadratic(hf_orb_pf, hf_A)
         # Prepare NN outputs
-        orb, pf = pf_orbs.orbitals, pf_orbs.orb_A_orb_product
+        orb, pf = pf_orbs.orbitals, pf_orbs.orb_A_orb_product.astype(dtype)
         o_weight, p_weight = orb_weight, pf_weight
         if not final:
             orb, pf = jax.lax.stop_gradient((orb, pf))
@@ -257,30 +256,26 @@ class Pfaffian(
                 A = jnp.block([[A_diag, A_offdiag], [-A_offdiag, A_diag]])
 
                 # Product
-                orb_A_orb_product = skewsymmetric_quadratic(orbitals, A)
+                orb_A_orb_product = skewsymmetric_quadratic(
+                    orbitals.astype(jnp.float64), A.astype(jnp.float64)
+                )
                 return PfaffianOrbitals(orbitals, A, orb_A_orb_product)
 
             result.append(_orbitals(diag, offdiag, A, fill))
         return result
 
     def to_slog_psi(self, systems: Systems, orbitals: list[PfaffianOrbitals]):
+        dtype = systems.electrons.dtype
         signs, logpsis = [], []
         for orb in orbitals:
-            if orb.orbitals.shape[-2] == orb.orb_A_orb_product.shape[-2]:
-                # We can use the fused version
-                sign, logpsi = slog_pfaffian_skewsymmetric_quadratic(
-                    orb.orbitals, orb.antisymmetrizer
-                )
-            else:
-                # We need to act on the padded version
-                sign, logpsi = slog_pfaffian(orb.orb_A_orb_product)
+            sign, logpsi = slog_pfaffian(orb.orb_A_orb_product)
             logpsi, sign = jax.nn.logsumexp(logpsi, axis=1, b=sign, return_sign=True)
             signs.append(sign)
             logpsis.append(logpsi)
         order = systems.inverse_unique_indices
         sign = jnp.concatenate(signs)[order]
         log_psi = jnp.concatenate(logpsis)[order]
-        return sign, log_psi
+        return sign.astype(jnp.int32), log_psi.astype(dtype)
 
     def match_hf_orbitals(
         self,

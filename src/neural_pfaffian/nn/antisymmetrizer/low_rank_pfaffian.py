@@ -143,7 +143,9 @@ class LowRankPfaffian(
                 A = jnp.block([[A_diag, A_offdiag], [-A_offdiag, A_diag]])
 
                 # Product
-                orb_A_orb_product = skewsymmetric_quadratic(orbitals, A)
+                orb_A_orb_product = skewsymmetric_quadratic(
+                    orbitals.astype(jnp.float64), A.astype(jnp.float64)
+                )
 
                 # Updates
                 A_updates = einops.rearrange(
@@ -158,11 +160,12 @@ class LowRankPfaffian(
         return result
 
     def to_slog_psi(self, systems: Systems, orbitals: list[LowRankPfaffianOrbitals]):
+        dtype = systems.electrons.dtype
         signs, logpsis = [], []
         for orb in orbitals:
             # Add dimension for the number of determinants
             sign, logpsi = slog_pfaffian_with_updates(
-                orb.orb_A_orb_product[:, None], orb.updates
+                orb.orb_A_orb_product[:, None], orb.updates.astype(jnp.float64)
             )
             logpsi, sign = jax.nn.logsumexp(logpsi, axis=1, b=sign, return_sign=True)
             signs.append(sign)
@@ -170,7 +173,7 @@ class LowRankPfaffian(
         order = systems.inverse_unique_indices
         sign = jnp.concatenate(signs)[order]
         log_psi = jnp.concatenate(logpsis)[order]
-        return sign, log_psi
+        return sign.astype(jnp.int32), log_psi.astype(dtype)
 
     def match_hf_orbitals(
         self,
