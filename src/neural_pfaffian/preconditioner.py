@@ -258,8 +258,9 @@ class Spring(PyTreeNode, Preconditioner[SpringState]):
         # Ensure that condition number is at worst 1e10
         damping = jnp.maximum(sigma[-1] / 1e10, state.damping)
         sigma = jnp.maximum(sigma, 0) + damping
+        U_local = U.reshape(n_dev, -1, U.shape[1])[pidx()]
 
-        x = U.reshape(n_dev, -1, U.shape[1])[pidx()] @ ((U.T @ epsilon_tilde) / sigma)
+        x = U_local @ ((U.T @ epsilon_tilde) / sigma)
         preconditioned = vjp(x)
         natgrad = tree_add(preconditioned, decayed_last_grad)
         # Convert back to the original dtype

@@ -92,7 +92,7 @@ def _pfaffian_pretraining_loss(
         hf_orb = jnp.concatenate(
             [
                 hf_orb,
-                jnp.zeros((*hf_orb.shape[:-2], 1, n_orbs), dtype=dtype)
+                jnp.zeros((*hf_orb.shape[:-2], 1, hf_orb.shape[-1]), dtype=dtype)
                 .at[..., -1]
                 .set(1),
             ],
@@ -209,11 +209,10 @@ class Pfaffian(
         )
 
         same_orbs = PerNucOrbitals(
-            n_det, self.orb_per_charge, self.envelope.copy(pi_init=1.0, keep_distr=False)
+            n_det, self.orb_per_charge, self.envelope.copy(pi_init=1)
         )(systems, elec_embeddings)
-        # init diff orbs with 0
         diff_orbs = PerNucOrbitals(
-            n_det, self.orb_per_charge, self.envelope.copy(pi_init=1e-3, keep_distr=True)
+            n_det, self.orb_per_charge, self.envelope.copy(pi_init=1e-3)
         )(systems, elec_embeddings)
         # If n_elec is odd, we need an extra orbital
         fill_vec, fill_vec_meta = self.reparam(

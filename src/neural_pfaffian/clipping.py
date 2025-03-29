@@ -43,9 +43,23 @@ class MedianClipping(Clipping, PyTreeNode):
         return jnp.clip(local_energies, center - max_dev, center + max_dev)
 
 
+class QuantileClipping(Clipping, PyTreeNode):
+    max_deviation: float = field(pytree_node=False)
+    quantile: float = field(pytree_node=False)
+
+    @vmap(in_axes=-1, out_axes=-1)
+    def __call__(self, local_energies: LocalEnergies) -> LocalEnergies:
+        full_e = pgather_if_pmap(local_energies, axis=0, tiled=True)
+        center = jnp.median(full_e)
+        abs_diffs = jnp.abs(full_e - center)
+        quantile = jnp.quantile(abs_diffs, self.quantile)
+        max_dev = self.max_deviation * quantile
+        return jnp.clip(local_energies, center - max_dev, center + max_dev)
+
+
 CLIPPINGS = Modules[Clipping](
     {
         cls.__name__.lower().replace('clipping', ''): cls
-        for cls in [NoneClipping, MeanClipping, MedianClipping]
+        for cls in [NoneClipping, MeanClipping, MedianClipping, QuantileClipping]
     }
 )

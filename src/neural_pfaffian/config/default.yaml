@@ -136,12 +136,15 @@ vmc:
       max_norm: 0.032 # sqrt(1.e-3)
 
   clipping:
-    module: median # ['none', 'mean', 'median']
+    module: quantile # ['none', 'mean', 'median']
     args:
       none: {}
       mean:
         max_deviation: 5
       median:
+        max_deviation: 5
+      quantile:
+        quantile: 0.95
         max_deviation: 5
 
 #########################################################################################

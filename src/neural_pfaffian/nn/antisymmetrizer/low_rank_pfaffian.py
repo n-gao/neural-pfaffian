@@ -90,11 +90,10 @@ class LowRankPfaffian(
         )
 
         same_orbs = PerNucOrbitals(
-            1, self.orb_per_charge, self.envelope.copy(pi_init=1.0, keep_distr=False)
+            1, self.orb_per_charge, self.envelope.copy(pi_init=1.0)
         )(systems, elec_embeddings)
-        # init diff orbs with 0
         diff_orbs = PerNucOrbitals(
-            1, self.orb_per_charge, self.envelope.copy(pi_init=1e-3, keep_distr=True)
+            1, self.orb_per_charge, self.envelope.copy(pi_init=1e-3)
         )(systems, elec_embeddings)
         # If n_elec is odd, we need an extra orbital
         fill_vec, fill_vec_meta = self.reparam(
