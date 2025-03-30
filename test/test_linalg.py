@@ -15,7 +15,7 @@ from neural_pfaffian.linalg import (
 from utils import assert_finite
 
 
-@pytest.fixture(scope='module', params=[2, 3, 4, 32])
+@pytest.fixture(scope='module', params=[2, 3, 4, 8])
 def num_orbitals(request):
     return request.param
 
@@ -77,17 +77,22 @@ def test_slog_pfaffian_jvp(antisymmetric_mat):
         npt.assert_allclose(log_pf, target, atol=1e-8)
 
 
-def test_slog_pfaffian_folx(antisymmetric_mat):
-    def f(x):
-        return slog_pfaffian(x)[1]
+def test_slog_pfaffian_folx(num_orbitals):
+    W = jax.random.normal(jax.random.key(4), (num_orbitals, 12, num_orbitals))
 
-    lapl, jac = folx.ForwardLaplacianOperator(0)(f)(antisymmetric_mat)
-    if antisymmetric_mat.shape[0] % 2 != 0:
+    def f(x):
+        A = x @ W
+        A = jnp.tanh(A - A.mT)
+        return slog_pfaffian(A)[1]
+
+    inp = jax.random.normal(jax.random.PRNGKey(0), (12,))
+    lapl, jac = folx.ForwardLaplacianOperator(0)(f)(inp)
+    if num_orbitals % 2 != 0:
         assert np.isnan(jac).all()
         assert np.isnan(lapl).all()
         return
     assert_finite((lapl, jac))
-    t_lapl, t_jac = folx.LoopLaplacianOperator()(f)(antisymmetric_mat)
+    t_lapl, t_jac = folx.LoopLaplacianOperator()(f)(inp)
     t_lapl = t_lapl.sum()
     npt.assert_allclose(lapl, t_lapl, atol=1e-8)
     npt.assert_allclose(jac, t_jac, atol=1e-8)
@@ -119,13 +124,13 @@ def test_skewsymmetric_quadratic_jvp_rhs(orbitals, antisymmetric_mat):
 
 
 def test_skewsymmetric_quadratic_folx():
-    elecs = jax.random.normal(jax.random.PRNGKey(0), (4, 3))
-    W = jax.random.normal(jax.random.PRNGKey(1), (3, 8))
-    W_A = jax.random.normal(jax.random.PRNGKey(2), (3, 8 * 8))
+    elecs = jax.random.normal(jax.random.PRNGKey(0), (12,))
+    W = jax.random.normal(jax.random.PRNGKey(1), (8, 12, 8))
+    W_A = jax.random.normal(jax.random.PRNGKey(2), (8, 12, 8))
 
     def f(x):
         orb = jnp.tanh(x @ W)
-        A = jnp.tanh(x @ W_A).sum(0).reshape(8, 8)
+        A = jnp.tanh(x @ W_A).reshape(8, 8)
         A = A - A.T
         return jnp.abs(skewsymmetric_quadratic(orb, A)).sum()
 

@@ -85,7 +85,7 @@ def _slog_pfaffian_general(A: jax.Array) -> tuple[jax.Array, jax.Array]:
 
 
 @_slog_pfaffian_general.defjvp
-def slog_pfaffian_jvp(primals, tangents):
+def _slog_pfaffian_general_jvp(primals, tangents):
     jnp.linalg.slogdet
     (A,) = primals
     (A_dot,) = tangents
@@ -239,7 +239,8 @@ def skewsymmetric_inv(A: jax.Array) -> jax.Array:
     elif A.shape[-1] % 2 == 1:
         # These matrices are singular and cannot be inverted
         return jnp.full_like(A, jnp.nan)
-    return jnp.linalg.inv(A)
+    result = jnp.linalg.inv(A)
+    return (result - result.mT) / 2
 
 
 @skewsymmetric_inv.defjvp
@@ -289,8 +290,7 @@ def slog_pfaffian_with_updates(
 # Here we define the functions for folx such that we can use the forward-laplacian
 try:
     import folx
-    from folx.api import FunctionFlags, FwdLaplArray, FwdLaplArgs
-    from folx.custom_hessian import slogdet_jac_hessian_jac
+    from folx.api import JAC_DIM, FunctionFlags, FwdLaplArray, FwdLaplArgs
 
     def skewsymmetric_quadratic_jac_hessian_jac(
         args: FwdLaplArgs,
@@ -322,13 +322,32 @@ try:
         merge,
         materialize_idx,
     ):
-        signs, logdet = slogdet_jac_hessian_jac(
-            args,
-            extra_args,
-            merge,
-            materialize_idx,
+        # This mostly resembles folx's slogdet_jac_hessian_jac
+        assert len(args.x) == 1
+        A = args.x[0]
+        A_inv = skewsymmetric_inv(A)
+        J = args.jacobian[0].construct_jac_for(materialize_idx)
+        J = (J - J.mT) / 2
+        J = jnp.moveaxis(J, JAC_DIM, -1)
+        leading_dims = A.shape[:-2]
+
+        def elementwise(A_inv, J):
+            # We can do better and compute the trace more efficiently.
+            A_inv_J = jnp.einsum('ij,jdk->idk', A_inv, J)
+            trace = -jnp.einsum('abc,bac->', A_inv_J, A_inv_J)
+            return jnp.zeros((), dtype=trace.dtype), trace
+
+        A_inv = A_inv.reshape(-1, *A.shape[-2:])
+        J = J.reshape(-1, *J.shape[-3:])
+
+        # We can either use vmap or scan. Scan is slightly slower but uses less memory.
+        # Here we assume that we will in general encounter larger determinants rather than many.
+        signs, flat_out = folx.batched_vmap(elementwise, 1)(A_inv, J)
+        sign_out, log_abs_out = (
+            signs.reshape(leading_dims),
+            flat_out.reshape(leading_dims),
         )
-        return signs, logdet / 2
+        return sign_out, log_abs_out.real / 2
 
     def folx_slog_pfaffian_general(args, kwargs, sparsity_threshold: int):
         fwd_lapl_fn = folx.wrap_forward_laplacian(
