@@ -10,7 +10,7 @@ from neural_pfaffian.linalg import skewsymmetric_quadratic, slog_pfaffian
 from utils import assert_finite
 
 
-@pytest.fixture(scope='module', params=[2, 3, 32])
+@pytest.fixture(scope='module', params=[2, 3, 4, 32])
 def num_orbitals(request):
     return request.param
 

@@ -2,11 +2,28 @@ import functools
 
 import jax
 import jax.numpy as jnp
+import numpy as np
 from jax._src.ad_util import SymbolicZero
 from jax.scipy.linalg import block_diag
 from jaxtyping import Array, Float
 
 from neural_pfaffian.utils.jax_utils import jit, vectorize
+from neural_pfaffian.utils.tree_utils import tree_to_dtype
+
+
+def _slogpfaffian_2x2(A: jax.Array) -> tuple[jax.Array, jax.Array]:
+    sign = jnp.sign(A[0, 1])
+    log_pfaffian = jnp.log(jnp.abs(A[0, 1]))
+    return sign, log_pfaffian
+
+
+def _slogpfaffian_4x4(A: jax.Array) -> tuple[jax.Array, jax.Array]:
+    assert A.shape == (4, 4)
+    a, b, c, d, e, f = A[np.triu_indices(4, 1)]
+    pf = a * f - b * e + d * c
+    sign = jnp.sign(pf)
+    log_pfaffian = jnp.log(jnp.abs(pf))
+    return sign, log_pfaffian
 
 
 @jit
@@ -36,15 +53,15 @@ def slog_pfaffian(A: jax.Array) -> tuple[jax.Array, jax.Array]:
     n = A.shape[0]
     if n % 2 == 1:
         return jnp.ones((), dtype=out_dtype), jnp.array(-jnp.inf, dtype=out_dtype)
-
-    if n == 2:
-        A = A[0, 1]
-        return jnp.sign(A).astype(out_dtype), jnp.log(jnp.abs(A)).astype(out_dtype)
+    elif n == 2:
+        return tree_to_dtype(_slogpfaffian_2x2(A), out_dtype)
 
     sign_pfaffian = jnp.ones((), dtype=dtype)
     log_pfaffian = jnp.zeros((), dtype=dtype)
 
-    for i in range(n - 2):
+    # We use the householder transformation to reduce the matrix to 4x4
+    # For 4x4, we can use the closed form solution
+    for i in range(n - 4):
         v, sign, alpha = householder(A[1:, 0])
         vw = 2 * jnp.einsum('a,bc,c->ab', v, A[1:, 1:], v)
         delta = vw - vw.mT
@@ -54,9 +71,11 @@ def slog_pfaffian(A: jax.Array) -> tuple[jax.Array, jax.Array]:
             sign_pfaffian *= sign
             log_pfaffian += jnp.log(jnp.abs(alpha))
 
-    sign_pfaffian *= jnp.sign(A[-2, -1])
-    log_pfaffian += jnp.log(jnp.abs(A[-2, -1]))
-    return sign_pfaffian.astype(out_dtype), log_pfaffian.astype(out_dtype)
+    # Use closed form solution for 4x4
+    s_remaing, log_remaing = _slogpfaffian_4x4(A)
+    sign_pfaffian *= s_remaing
+    log_pfaffian += log_remaing
+    return tree_to_dtype((sign_pfaffian, log_pfaffian), out_dtype)
 
 
 @slog_pfaffian.defjvp
@@ -188,11 +207,16 @@ def inv_skewsymmetric_quadratic_jvp(primals, tangents):
 inv_skewsymmetric_quadratic = jit(inv_skewsymmetric_quadratic)
 
 
+@vectorize(signature='(n,n)->(n,n)')
+def _skewsymmetric_inv_2x2(A: jax.Array) -> jax.Array:
+    a = A[0, 1]
+    return jnp.array([[0, -1 / a], [1 / a, 0]])
+
+
 @jax.custom_jvp
 def skewsymmetric_inv(A: jax.Array) -> jax.Array:
     if A.shape[-1] == 2:
-        eye = jnp.eye(2, dtype=A.dtype)
-        return -(1 / (A + eye)) * (1 - eye)
+        return _skewsymmetric_inv_2x2(A)
     elif A.shape[-1] % 2 == 1:
         # These matrices are singular and cannot be inverted
         return jnp.full_like(A, jnp.nan)
