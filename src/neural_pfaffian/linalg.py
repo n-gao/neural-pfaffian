@@ -265,8 +265,23 @@ def slog_pfaffian_with_updates(
     sign_X, logdet_X = slog_pfaffian(X)
     assert B.shape[-1] % 2 == 0
     C = antisymmetric_block_diagonal(B.shape[-1] // 2, dtype=X.dtype)
-    Y = C.mT + skewsymmetric_quadratic(B.T, skewsymmetric_inv(X))
-    sign_Y, logdet_Y = slog_pfaffian(Y)
+    X_inv = skewsymmetric_inv(X)
+    match B.shape[-1]:
+        case 2:
+            # Fast path for 2x2 blocks, we only compute the top right element
+            pf_Y = B[:, 0] @ X_inv @ B[:, 1] - 1
+            sign_Y, logdet_Y = jnp.sign(pf_Y), jnp.log(jnp.abs(pf_Y))
+        case 4:
+            # Only compute the upper triangular elements
+            i, j = np.triu_indices(4, 1)
+            a, b, c, d, e, f = jnp.einsum('ai,ab,bi->i', B[:, i], X_inv, B[:, j])
+            a, f = a - 1, f - 1
+            pf_Y = a * f - b * e + d * c
+            sign_Y, logdet_Y = -jnp.sign(pf_Y), jnp.log(jnp.abs(pf_Y))
+        case _:
+            # Regular solution
+            Y = C.mT + skewsymmetric_quadratic(B.T, skewsymmetric_inv(X))
+            sign_Y, logdet_Y = slog_pfaffian(Y)
     return -sign_X * sign_Y, logdet_X + logdet_Y
 
 

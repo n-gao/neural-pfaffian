@@ -5,7 +5,12 @@ import numpy as np
 import numpy.testing as npt
 import pytest
 
-from neural_pfaffian.linalg import skewsymmetric_quadratic, slog_pfaffian
+from neural_pfaffian.linalg import (
+    antisymmetric_block_diagonal,
+    skewsymmetric_quadratic,
+    slog_pfaffian,
+    slog_pfaffian_with_updates,
+)
 
 from utils import assert_finite
 
@@ -17,6 +22,11 @@ def num_orbitals(request):
 
 @pytest.fixture(scope='module', params=[2, 8])
 def num_electrons(request):
+    return request.param
+
+
+@pytest.fixture(scope='module', params=[2, 4, 6])
+def rank(request):
     return request.param
 
 
@@ -35,6 +45,12 @@ def orbitals(num_orbitals, num_electrons):
         pytest.skip('Number of electrons cannot exceed number of orbitals.')
     Phi = jax.random.normal(jax.random.PRNGKey(1), (m, n))
     return Phi
+
+
+@pytest.fixture(scope='module')
+def updates(num_electrons, rank):
+    updates = jax.random.normal(jax.random.PRNGKey(2), (num_electrons, rank))
+    return updates
 
 
 def log_pfaffian(x):
@@ -119,3 +135,17 @@ def test_skewsymmetric_quadratic_folx():
     assert_finite((lapl, jac))
     npt.assert_allclose(jac, jac_t, atol=1e-8)
     npt.assert_allclose(lapl, lapl_t, atol=1e-8)
+
+
+def test_slog_pfaffian_with_updates(orbitals, antisymmetric_mat, updates):
+    xAx = skewsymmetric_quadratic(orbitals, antisymmetric_mat)
+    sign, log = slog_pfaffian_with_updates(xAx, updates)
+
+    assert_finite((sign, log))
+
+    C = antisymmetric_block_diagonal(updates.shape[-1] // 2, updates.dtype)
+    xAx_ = skewsymmetric_quadratic(updates, C) + xAx
+    sign_t, log_t = slog_pfaffian(xAx_)
+
+    npt.assert_allclose(sign, sign_t, atol=1e-8)
+    npt.assert_allclose(log, log_t, atol=1e-8)
