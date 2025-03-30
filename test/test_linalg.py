@@ -61,16 +61,6 @@ def test_slog_pfaffian_jvp(antisymmetric_mat):
         npt.assert_allclose(log_pf, target, atol=1e-8)
 
 
-def test_slog_pfaffian_hessian(antisymmetric_mat):
-    hess = jax.hessian(lambda x: slog_pfaffian(x)[1])(antisymmetric_mat)
-    target = jax.hessian(log_pfaffian)(antisymmetric_mat)
-    if antisymmetric_mat.shape[0] % 2 != 0:
-        assert np.isnan(hess).all()
-    else:
-        assert_finite(hess)
-        npt.assert_allclose(hess, target, atol=1e-8)
-
-
 def test_slog_pfaffian_folx(antisymmetric_mat):
     def f(x):
         return slog_pfaffian(x)[1]

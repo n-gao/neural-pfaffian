@@ -11,14 +11,20 @@ from neural_pfaffian.utils.jax_utils import jit, vectorize
 from neural_pfaffian.utils.tree_utils import tree_to_dtype
 
 
+@vectorize(signature='(n,n)->(),()')
 def _slogpfaffian_2x2(A: jax.Array) -> tuple[jax.Array, jax.Array]:
-    sign = jnp.sign(A[0, 1])
-    log_pfaffian = jnp.log(jnp.abs(A[0, 1]))
+    assert A.shape == (2, 2)
+    A = (A - A.mT) / 2  # make sure that gradients are correct
+    a = A[0, 1]
+    sign = jnp.sign(a)
+    log_pfaffian = jnp.log(jnp.abs(a))
     return sign, log_pfaffian
 
 
+@vectorize(signature='(n,n)->(),()')
 def _slogpfaffian_4x4(A: jax.Array) -> tuple[jax.Array, jax.Array]:
     assert A.shape == (4, 4)
+    A = (A - A.mT) / 2  # make sure that gradients are correct
     a, b, c, d, e, f = A[np.triu_indices(4, 1)]
     pf = a * f - b * e + d * c
     sign = jnp.sign(pf)
@@ -42,7 +48,7 @@ def householder(x: jax.Array) -> tuple[jax.Array, jax.Array, jax.Array]:
 
 @functools.partial(jax.custom_jvp)
 @functools.partial(jnp.vectorize, signature='(n,n)->(),()', excluded=frozenset({1}))
-def slog_pfaffian(A: jax.Array) -> tuple[jax.Array, jax.Array]:
+def _slog_pfaffian_general(A: jax.Array) -> tuple[jax.Array, jax.Array]:
     """
     Computes the Pfaffian of a skew-symmetric matrix A using the householder transformation.
     """
@@ -78,12 +84,12 @@ def slog_pfaffian(A: jax.Array) -> tuple[jax.Array, jax.Array]:
     return tree_to_dtype((sign_pfaffian, log_pfaffian), out_dtype)
 
 
-@slog_pfaffian.defjvp
+@_slog_pfaffian_general.defjvp
 def slog_pfaffian_jvp(primals, tangents):
     jnp.linalg.slogdet
     (A,) = primals
     (A_dot,) = tangents
-    sign_pfaffian, log_pfaffian = slog_pfaffian(A)
+    sign_pfaffian, log_pfaffian = _slog_pfaffian_general(A)
     A_inv = skewsymmetric_inv(A)
     det_dot = jnp.einsum('...ij,...ji->...', A_inv, A_dot)
     sign_dot = jnp.zeros_like(sign_pfaffian)
@@ -91,7 +97,20 @@ def slog_pfaffian_jvp(primals, tangents):
     return (sign_pfaffian, log_pfaffian), (sign_dot, pfaffian_dot)
 
 
-slog_pfaffian = jit(slog_pfaffian)
+_slog_pfaffian_general = jit(_slog_pfaffian_general)
+
+
+@jit
+@vectorize(signature='(n,n)->(),()')
+def slog_pfaffian(A: jax.Array) -> tuple[jax.Array, jax.Array]:
+    match A.shape[-1]:
+        case 2:
+            sign, log_pfaffian = _slogpfaffian_2x2(A)
+        case 4:
+            sign, log_pfaffian = _slogpfaffian_4x4(A)
+        case _:
+            sign, log_pfaffian = _slog_pfaffian_general(A)
+    return sign, log_pfaffian
 
 
 @jax.custom_jvp
@@ -296,9 +315,10 @@ try:
         )
         return signs, logdet / 2
 
-    def folx_slog_pfaffian(args, kwargs, sparsity_threshold: int):
+    def folx_slog_pfaffian_general(args, kwargs, sparsity_threshold: int):
         fwd_lapl_fn = folx.wrap_forward_laplacian(
-            slog_pfaffian, custom_jac_hessian_jac=folx_slog_pfaffian_jac_hessian_jac
+            _slog_pfaffian_general,
+            custom_jac_hessian_jac=folx_slog_pfaffian_jac_hessian_jac,
         )
         sign, logpf = fwd_lapl_fn(args, kwargs, sparsity_threshold=sparsity_threshold)
         sign = folx.warp_without_fwd_laplacian(lambda x: x)(
@@ -321,7 +341,7 @@ try:
             custom_jac_hessian_jac=skewsymmetric_quadratic_jac_hessian_jac,
         ),
     )
-    folx.register_function('slog_pfaffian', folx_slog_pfaffian)
+    folx.register_function('_slog_pfaffian_general', folx_slog_pfaffian_general)
     folx.register_function(
         'slog_pfaffian_skewsymmetric_quadratic',
         folx_slog_pfaffian_skewsymmetric_quadratic,
