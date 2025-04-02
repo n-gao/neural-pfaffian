@@ -214,7 +214,7 @@ S = TypeVar('S', bound=Systems)
 
 
 class MetropolisHastings(PyTreeNode):
-    wave_function: GeneralizedWaveFunction
+    wave_function: GeneralizedWaveFunction = field(pytree_node=False)
     steps: int = field(pytree_node=False)
     init_width: Width
     window_size: int = field(pytree_node=False)

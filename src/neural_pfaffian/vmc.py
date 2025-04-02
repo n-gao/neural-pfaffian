@@ -1,4 +1,4 @@
-from typing import Generic, TypeVar
+from typing import Generic, Sequence, TypeVar
 
 import folx
 import jax
@@ -14,6 +14,7 @@ from neural_pfaffian.nn.wave_function import (
     GeneralizedWaveFunction,
     WaveFunctionParameters,
 )
+from neural_pfaffian.observable import Observable
 from neural_pfaffian.preconditioner import Preconditioner
 from neural_pfaffian.systems import Systems
 from neural_pfaffian.utils.jax_utils import (
@@ -28,7 +29,6 @@ from neural_pfaffian.utils.jax_utils import (
 from neural_pfaffian.utils.tree_utils import tree_squared_norm
 
 LocalEnergy = Float[Array, 'batch_size n_mols']
-S = TypeVar('S', bound=Systems)
 
 
 @vmap(in_axes=-1, out_axes=-1)  # vmap over molecules
@@ -54,6 +54,7 @@ class VMC(Generic[PS, O, OS], PyTreeNode):
     optimizer: optax.GradientTransformation = field(pytree_node=False)
     sampler: MetropolisHastings = field(pytree_node=False)
     clipping: Clipping = field(pytree_node=False)
+    observables: Sequence[Observable] = field(pytree_node=False)
 
     def init(self, key: Array, systems: Systems):
         params = self.wave_function.init(key, systems.example_input)
@@ -64,7 +65,7 @@ class VMC(Generic[PS, O, OS], PyTreeNode):
             step=jnp.zeros((), dtype=jnp.int32),
         )
 
-    def init_systems(self, key: Array, systems: S) -> S:
+    def init_systems[S: Systems](self, key: Array, systems: S) -> S:
         @shmap(
             in_specs=(REPLICATE_SPEC, systems.partition_spec),
             out_specs=systems.partition_spec,
@@ -73,6 +74,9 @@ class VMC(Generic[PS, O, OS], PyTreeNode):
             key = distribute_keys(key)
             key, subkey = jax.random.split(key)
             systems = self.sampler.init_systems(subkey, systems)
+            for obs in self.observables:
+                key, subkey = jax.random.split(key)
+                systems = obs.init_systems(subkey, systems)
             return systems
 
         return init(key, systems)
@@ -139,6 +143,8 @@ class VMC(Generic[PS, O, OS], PyTreeNode):
             params = optax.apply_updates(state.params, updates)  # type: ignore
 
             # Logging
+            for obs in self.observables:
+                systems = obs.log(systems, clipped_e_l)
             E_per_mol = pmean(e_l.mean(0))
             E = E_per_mol.mean()
             E_std = (pmean(((e_l - E_per_mol) ** 2).mean(0)) ** 0.5).mean()
@@ -157,3 +163,10 @@ class VMC(Generic[PS, O, OS], PyTreeNode):
             )
 
         return _step(key, state, systems)
+
+    @jit
+    def get_observables(self, systems: Systems):
+        result = {}
+        for obs in self.observables:
+            result |= obs.data(systems)
+        return result

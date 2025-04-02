@@ -7,7 +7,7 @@ import jax.tree_util as jtu
 import numpy as np
 import numpy.typing as npt
 from flax.struct import PyTreeNode
-from jaxtyping import Array, ArrayLike, Float
+from jaxtyping import Array, ArrayLike, Float, Integer
 
 from .jax_utils import jit
 
@@ -120,6 +120,40 @@ class EMA(Generic[T], PyTreeNode):
         )
 
 
+class MovingAverage(Generic[T], PyTreeNode):
+    _history: T
+    _value: T
+    _idx: Integer[Array, '']
+
+    @classmethod
+    def init(cls, data: T, window_size: int) -> 'MovingAverage[T]':
+        return cls(
+            jtu.tree_map(lambda x: jnp.zeros((window_size, *x.shape), x.dtype), data),
+            jtu.tree_map(lambda x: jnp.zeros_like(x), data),
+            jnp.zeros((), dtype=jnp.int32),
+        )
+
+    @property
+    def window_size(self) -> int:
+        return jtu.tree_leaves(self._history)[0].shape[0]
+
+    @jit
+    def update(self, value: T) -> Self:
+        curr_idx = self._idx % self.window_size
+        removed = jtu.tree_map(lambda x: x[curr_idx], self._history)
+        new_history = jtu.tree_map(
+            lambda x, y: x.at[curr_idx].set(y), self._history, value
+        )
+        new_value = jtu.tree_map(lambda a, b, c: a + b - c, self._value, value, removed)
+        new_idx = self._idx + 1
+        return self.replace(_history=new_history, _value=new_value, _idx=new_idx)
+
+    @jit
+    def value(self) -> T:
+        denom = jnp.clip(self._idx, 1, self.window_size)
+        return jtu.tree_map(lambda x: x / denom, self._value)
+
+
 def batch[T](data: Sequence[T], n: int) -> list[Sequence[T]]:
     """
     Batches data into chunks of size n.
@@ -160,11 +194,15 @@ class Modules[T](dict[str, type[T]]):
         return self[module](**args[module], **kwargs)
 
     def init_many(
-        self, modules: Sequence[tuple[str, dict[str, Any]]] | dict[str, dict[str, Any]]
+        self,
+        modules: Sequence[tuple[str, dict[str, Any]]] | dict[str, dict[str, Any]],
+        *args,
     ) -> tuple[T, ...]:
         if isinstance(modules, dict):
-            return tuple(self[k.lower()](**kwargs) for k, kwargs in modules.items())
-        return tuple(self[module.lower()](**args) for module, args in modules)
+            return tuple(
+                self[k.lower()](*args, **kwargs) for k, kwargs in modules.items()
+            )
+        return tuple(self[module.lower()](*args, **kwargs) for module, kwargs in modules)
 
     def try_init_many(
         self, modules: Sequence[tuple[str, dict[str, Any]]] | dict[str, dict[str, Any]]

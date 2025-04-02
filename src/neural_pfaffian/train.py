@@ -90,6 +90,7 @@ def train(
                 subkey, state.sharded, batches[i].sharded
             )
             logger.log(log_data, prefix='train')
+        logger.log(vmc.get_observables(Systems.merge(batches)), prefix='obs')
         if epoch % 100 == 0:
             logger.checkpoint(state, Systems.merge(batches))
     return state, Systems.merge(batches)

@@ -1,12 +1,13 @@
+import time
 from collections import defaultdict
 from copy import deepcopy
 from pathlib import Path
-import time
 from typing import Any
 
 import jax.tree_util as jtu
 import wandb
 import yaml
+from seml.utils import flatten
 
 from neural_pfaffian.systems import Systems
 from neural_pfaffian.utils import Modules
@@ -73,6 +74,7 @@ class LogFile:
         self._logfile = open(self.path, 'a')
 
     def write(self, data: dict[str, Any]):
+        data = flatten(data)
         if self.headers is None:
             self.headers = list(data.keys())
             self._logfile.write(','.join(self.headers) + '\n')
