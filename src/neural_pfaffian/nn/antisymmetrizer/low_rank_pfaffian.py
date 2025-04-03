@@ -116,7 +116,10 @@ class LowRankPfaffian(
             orb_mask = orbital_mask(self.orb_per_charge, charges)
             full_mask = np.repeat(orb_mask, 2)
             # squeeze out the determinants
-            diag, offdiag = diag.squeeze(-1), offdiag.squeeze(-1)
+            diag, offdiag = (
+                diag.reshape(*diag.shape[:-2], -1),
+                offdiag.reshape(*offdiag.shape[:-2], -1),
+            )
 
             @vmap  # vmap over different molecules
             def _orbitals(
@@ -151,7 +154,11 @@ class LowRankPfaffian(
                 A_updates = einops.rearrange(
                     A_updates, 'nuc orb two rank det -> det (two nuc orb) rank'
                 )[:, full_mask]
-                updates = jnp.einsum('no,dor->dnr', orbitals, A_updates)
+                updates = jnp.einsum(
+                    'no,dor->dnr',
+                    orbitals.astype(jnp.float64),
+                    A_updates.astype(jnp.float64),
+                )
                 return LowRankPfaffianOrbitals(
                     orbitals, A, A_updates, orb_A_orb_product, updates
                 )

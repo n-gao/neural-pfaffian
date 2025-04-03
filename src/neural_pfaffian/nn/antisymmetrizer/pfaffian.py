@@ -1,5 +1,5 @@
 import functools
-from typing import Sequence
+from typing import Literal, Sequence
 
 import einops
 import flax.linen as nn
@@ -128,11 +128,21 @@ class PerNucOrbitals(ReparamModule):
     determinants: int
     orb_per_charge: dict[str, int]
     envelope: Envelope
+    chunk_axis: Literal['det', 'orb'] | None = 'det'
 
     @nn.compact
     def __call__(self, systems: Systems, elec_embeddings: Float[Array, 'electrons dim']):
         inp_dim = elec_embeddings.shape[-1]
         max_orb = max_orbitals(self.orb_per_charge)
+        match self.chunk_axis:
+            case 'det':
+                chunk_axis = -1
+            case 'orb':
+                chunk_axis = 1
+            case None:
+                chunk_axis = None
+            case _:
+                raise ValueError(f'Invalid chunk axis: {self.chunk_axis}')
         W, W_meta = self.reparam(
             'projection',
             jax.nn.initializers.normal(1 / jnp.sqrt(inp_dim), dtype=jnp.float32),
@@ -143,7 +153,7 @@ class PerNucOrbitals(ReparamModule):
                 self.determinants,
             ),
             param_type=ParamTypes.NUCLEI,
-            chunk_axis=-1,
+            chunk_axis=chunk_axis,
             keep_distr=True,
         )
         # Set envelopes output correctly
