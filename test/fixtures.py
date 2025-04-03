@@ -17,6 +17,7 @@ from neural_pfaffian.nn.jastrow import CuspJastrow, MLPJastrow
 from neural_pfaffian.nn.meta_network import MetaGNN
 from neural_pfaffian.nn.module import ParamMeta, ParamTypes
 from neural_pfaffian.nn.wave_function import GeneralizedWaveFunction, WaveFunction
+from neural_pfaffian.observable import EnergyObservable
 from neural_pfaffian.preconditioner import CG, Identity, Preconditioner, Spring
 from neural_pfaffian.pretraining import Pretraining, PretrainingDistribution
 from neural_pfaffian.systems import Systems
@@ -487,6 +488,7 @@ def vmc(neural_pfaffian, identity_preconditioner, mcmc, optimizer):
         optimizer=optimizer,
         sampler=mcmc,
         clipping=MedianClipping(5),
+        observables=[EnergyObservable(neural_pfaffian, 10)],
     )
 
 
@@ -522,6 +524,7 @@ def pretrain_vmc(pretrain_wf, spring_preconditioner, mcmc, optimizer):
         optimizer=optimizer,
         sampler=mcmc.replace(wave_function=pretrain_wf),
         clipping=MedianClipping(5),
+        observables=[EnergyObservable(pretrain_wf, 10)],
     )
 
 

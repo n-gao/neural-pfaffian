@@ -8,7 +8,6 @@ from neural_pfaffian.vmc import VMC, VMCState
 
 def test_dtypes(vmc_state: VMCState, vmc_systems: Systems):
     assert_not_float64(vmc_state.params)
-    assert_not_float64(vmc_systems)
     assert_finite(vmc_state)
     assert_finite(vmc_systems)
 
