@@ -234,12 +234,15 @@ class Spring(PyTreeNode, Preconditioner[SpringState]):
             jac = pall_to_all(jac, split_axis=2, concat_axis=0, tiled=True)
             jac -= jac.mean(axis=0)
             jac = jac.reshape(N, -1)
+            result = jac @ jac.T
             # for the remainder we copy it to all devices
-            remainder = pgather(remainder, axis=0, tiled=True)
-            remainder -= remainder.mean(axis=0)
-            remainder = remainder.reshape(N, -1)
-            # Since the remainder is summed n_dev times we need to divide by n_dev
-            return jac @ jac.T + remainder @ remainder.T / n_dev
+            if remainder.size > 0:
+                remainder = pgather(remainder, axis=0, tiled=True)
+                remainder -= remainder.mean(axis=0)
+                remainder = remainder.reshape(N, -1)
+                # Since the remainder is summed n_dev times we need to divide by n_dev
+                result += remainder @ remainder.T / n_dev
+            return result
 
         # Compute covariance
         JT_J = jtu.tree_reduce(jnp.add, jtu.tree_map(to_covariance, *jacs))

@@ -4,6 +4,7 @@ import os
 os.environ['JAX_DEFAULT_DTYPE_BITS'] = '32'
 
 import jax
+import jax.flatten_util
 import rich.syntax
 import seml
 import yaml
@@ -85,6 +86,8 @@ def main(
     logging.info('Initializing VMC state')
     key, subkey = jax.random.split(key)
     state = vmc.init(subkey, systems)
+    n_params = jax.flatten_util.ravel_pytree(state.params)[0].size
+    logging.info(f'Wave function parameters: {n_params}')
     logging.info('Initializing VMC systems')
     key, subkey = jax.random.split(key)
     systems = vmc.init_systems(subkey, systems)

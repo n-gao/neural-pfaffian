@@ -1,7 +1,6 @@
 import functools
 from enum import Enum
 
-import jax
 import jax.numpy as jnp
 from folx import (
     ForwardLaplacianOperator,
@@ -16,7 +15,7 @@ from neural_pfaffian.nn.wave_function import (
     WaveFunctionParameters,
 )
 from neural_pfaffian.systems import Systems
-from neural_pfaffian.utils.jax_utils import jit
+from neural_pfaffian.utils.jax_utils import jit, vmap
 
 
 class KineticEnergyOp(Enum):
@@ -30,10 +29,12 @@ def make_kinetic_energy(
     match operator:
         case KineticEnergyOp.LOOP:
             op = LoopLaplacianOperator()
-            vmap_fn = functools.partial(batched_vmap, max_batch_size=1)
+            vmap_fn = vmap
         case KineticEnergyOp.FORWARD:
-            op = ForwardLaplacianOperator(0.25)
-            vmap_fn = jax.vmap
+            op = ForwardLaplacianOperator(0.6)
+            vmap_fn = functools.partial(batched_vmap, max_batch_size=1)
+        case _:
+            raise ValueError(f'Unsupported kinetic energy operator: {operator}.')
 
     @jit
     def laplacian(

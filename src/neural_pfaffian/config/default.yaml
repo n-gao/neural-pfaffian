@@ -59,7 +59,7 @@ wave_function:
         hf_match_ema: 0.999
       lowrankpfaffian:
         determinants: 16
-        rank: 2
+        rank: 4
         orb_per_charge:
           "1": 2
           "2": 2
