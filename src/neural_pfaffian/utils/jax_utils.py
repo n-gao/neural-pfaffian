@@ -6,12 +6,11 @@ https://github.com/deepmind/ferminet/tree/jax/ferminet
 
 import functools
 from pathlib import Path
-from typing import Callable, ParamSpec, TypeVar, overload
+from typing import Callable, overload
 
 import jax
 import jax.numpy as jnp
 import jax.tree_util as jtu
-from chex import ArrayTree
 from flax.serialization import from_bytes, to_bytes
 from flax.struct import PyTreeNode
 from jax import core
@@ -28,20 +27,12 @@ REPLICATE_SPEC = PartitionSpec()
 REPLICATE_SHARDING = NamedSharding(MESH, REPLICATE_SPEC)
 
 
-T = TypeVar('T')
-
-
 def distribute_keys(key: jax.Array) -> jax.Array:
     return jax.random.split(key, jax.device_count())[pidx()]
 
 
-Tree = TypeVar('Tree', bound=ArrayTree)
-
 # Shortcut for jax.pmap over PMAP_AXIS_NAME. Prefer this if pmapping any
 # function which does communications or reductions.
-P = ParamSpec('P')
-R = TypeVar('R')
-
 pmean = functools.partial(jax.lax.pmean, axis_name=_BATCH_AXIS)
 psum = functools.partial(jax.lax.psum, axis_name=_BATCH_AXIS)
 pmax = functools.partial(jax.lax.pmax, axis_name=_BATCH_AXIS)
@@ -51,12 +42,9 @@ pall_to_all = functools.partial(jax.lax.all_to_all, axis_name=_BATCH_AXIS)
 pidx = functools.partial(jax.lax.axis_index, axis_name=_BATCH_AXIS)
 
 
-C = TypeVar('C', bound=Callable)
-
-
-def wrap_if_pmap(p_func: C) -> C:
+def wrap_if_pmap[C: Callable](p_func: C) -> C:
     @functools.wraps(p_func)
-    def p_func_if_pmap(obj: T, *args, **kwargs) -> T:
+    def p_func_if_pmap[T](obj: T, *args, **kwargs) -> T:
         try:
             core.axis_frame(_BATCH_AXIS)
             return p_func(obj, *args, **kwargs)
@@ -73,19 +61,18 @@ pmin_if_pmap = wrap_if_pmap(pmin)
 pgather_if_pmap = wrap_if_pmap(pgather)
 
 
-C = TypeVar('C', bound=Callable)
+@overload
+def jit[C: Callable](fun: None = None, *jit_args, **jit_kwargs) -> Callable[[C], C]: ...
 
 
 @overload
-def jit(fun: None = None, *jit_args, **jit_kwargs) -> Callable[[C], C]: ...
-
-
-@overload
-def jit(fun: C, *jit_args, **jit_kwargs) -> C: ...
+def jit[C: Callable](fun: C, *jit_args, **jit_kwargs) -> C: ...
 
 
 @functools.wraps(jax.jit)
-def jit(fun: C | None = None, *jit_args, **jit_kwargs) -> C | Callable[[C], C]:
+def jit[C: Callable](
+    fun: C | None = None, *jit_args, **jit_kwargs
+) -> C | Callable[[C], C]:
     def inner_jit(fun: C) -> C:
         jitted = jax.jit(fun, *jit_args, **jit_kwargs)
 
@@ -102,14 +89,18 @@ def jit(fun: C | None = None, *jit_args, **jit_kwargs) -> C | Callable[[C], C]:
 
 
 @overload
-def vectorize(fun: None = None, *vec_args, **vec_kwargs) -> Callable[[C], C]: ...
+def vectorize[C: Callable](
+    fun: None = None, *vec_args, **vec_kwargs
+) -> Callable[[C], C]: ...
 
 
 @overload
-def vectorize(fun: C, *vec_args, **vec_kwargs) -> C: ...
+def vectorize[C: Callable](fun: C, *vec_args, **vec_kwargs) -> C: ...
 
 
-def vectorize(fun: C | None = None, *vec_args, **vec_kwargs) -> C | Callable[[C], C]:
+def vectorize[C: Callable](
+    fun: C | None = None, *vec_args, **vec_kwargs
+) -> C | Callable[[C], C]:
     def inner_jit(fun: C) -> C:
         vectorized = jnp.vectorize(fun, *vec_args, **vec_kwargs)
 
@@ -126,7 +117,9 @@ def vectorize(fun: C | None = None, *vec_args, **vec_kwargs) -> C | Callable[[C]
 
 
 @functools.wraps(shard_map)
-def shmap(fun: C | None = None, *shmap_args, **shmap_kwargs) -> C | Callable[[C], C]:
+def shmap[C: Callable](
+    fun: C | None = None, *shmap_args, **shmap_kwargs
+) -> C | Callable[[C], C]:
     def inner_shmap(fun: C) -> C:
         return shard_map(fun, MESH, *shmap_args, **shmap_kwargs)  # type: ignore
 
@@ -137,15 +130,19 @@ def shmap(fun: C | None = None, *shmap_args, **shmap_kwargs) -> C | Callable[[C]
 
 
 @overload
-def vmap(fun: None = None, *vmap_args, **vmap_kwargs) -> Callable[[C], C]: ...
+def vmap[C: Callable](
+    fun: None = None, *vmap_args, **vmap_kwargs
+) -> Callable[[C], C]: ...
 
 
 @overload
-def vmap(fun: C, *vmap_args, **vmap_kwargs) -> C: ...
+def vmap[C: Callable](fun: C, *vmap_args, **vmap_kwargs) -> C: ...
 
 
 @functools.wraps(jax.vmap)
-def vmap(fun: C | None = None, *vmap_args, **vmap_kwargs) -> C | Callable[[C], C]:
+def vmap[C: Callable](
+    fun: C | None = None, *vmap_args, **vmap_kwargs
+) -> C | Callable[[C], C]:
     def inner_vmap(fun: C) -> C:
         vmapped = jax.vmap(fun, *vmap_args, **vmap_kwargs)
 
