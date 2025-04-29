@@ -3,7 +3,7 @@ import functools
 import jax
 import jax.numpy as jnp
 import numpy as np
-from jax._src.ad_util import SymbolicZero
+from jax.custom_derivatives import SymbolicZero
 from jax.scipy.linalg import block_diag
 from jaxtyping import Array, Float
 
