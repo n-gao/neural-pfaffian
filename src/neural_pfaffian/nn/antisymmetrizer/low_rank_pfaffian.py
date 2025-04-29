@@ -87,13 +87,14 @@ class LowRankPfaffian(
             jax.nn.initializers.normal(1, dtype=jnp.float32),
             (systems.n_nuc, max_orb, 2, self.rank, self.determinants),
             param_type=ParamTypes.NUCLEI,
+            chunk_axis=-1,
         )
 
         same_orbs = PerNucOrbitals(
-            1, self.orb_per_charge, self.envelope.copy(pi_init=1.0)
+            1, self.orb_per_charge, self.envelope.copy(pi_init=1.0), 'orb'
         )(systems, elec_embeddings)
         diff_orbs = PerNucOrbitals(
-            1, self.orb_per_charge, self.envelope.copy(pi_init=1e-3)
+            1, self.orb_per_charge, self.envelope.copy(pi_init=1e-3), 'orb'
         )(systems, elec_embeddings)
         # If n_elec is odd, we need an extra orbital
         fill_vec, fill_vec_meta = self.reparam(
@@ -112,14 +113,11 @@ class LowRankPfaffian(
             systems.group(A_updates, A_updates_meta.param_type.value.chunk_fn),
             systems.unique_spins_and_charges,
         ):
-            n_elec, n_up, n_nuc = sum(spins), spins[0], len(charges)
+            n_mol, n_elec, n_up, n_nuc = diag.shape[0], sum(spins), spins[0], len(charges)
             orb_mask = orbital_mask(self.orb_per_charge, charges)
             full_mask = np.repeat(orb_mask, 2)
-            # squeeze out the determinants
-            diag, offdiag = (
-                diag.reshape(*diag.shape[:-2], -1),
-                offdiag.reshape(*offdiag.shape[:-2], -1),
-            )
+            diag = diag.reshape(n_mol, n_elec, -1)
+            offdiag = offdiag.reshape(n_mol, n_elec, -1)
 
             @vmap  # vmap over different molecules
             def _orbitals(
@@ -127,13 +125,7 @@ class LowRankPfaffian(
             ):
                 # construct full orbitals
                 uu, dd, ud, du = diag[:n_up], diag[n_up:], offdiag[:n_up], offdiag[n_up:]
-                orbitals = jnp.concatenate(
-                    [
-                        jnp.concatenate([uu, ud], axis=1),
-                        jnp.concatenate([du, dd], axis=1),
-                    ],
-                    axis=0,
-                )  # (n_elec, 2*n_orbs)
+                orbitals = jnp.block([[uu, ud], [du, dd]])  # (n_elec, 2*n_orbs)
                 # Pad additional orbital if n_elec is odd
                 if n_elec % 2 == 1:
                     fill = fill.reshape(1, -1)[:, full_mask]

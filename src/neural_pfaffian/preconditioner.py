@@ -270,7 +270,7 @@ class Spring(PyTreeNode, Preconditioner[SpringState]):
         update = jtu.tree_map(jax.lax.convert_element_type, natgrad, out_dtypes)
         aux_data = {
             'cond_nr10': jnp.log10(sigma[-1]) - jnp.log10(sigma[0]),
-            'grad_norm': tree_squared_norm(dE_dlogpsi) ** 0.5,
+            'grad_norm': psum_if_pmap(tree_squared_norm(dE_dlogpsi)) ** 0.5,
         }
         return update, state.replace(last_grad=natgrad), aux_data
 

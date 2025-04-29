@@ -112,8 +112,9 @@ def _pfaffian_pretraining_loss(
             o_weight = p_weight = 1
 
         # Calculate loss
+        orb_norm = 1 / (n_el * orb[..., 0].size)  # ensure that it's normalized
         loss_val = jnp.zeros((), dtype=dtype)
-        loss_val += ((hf_orb_targets - orb) ** 2).mean() * o_weight
+        loss_val += ((hf_orb_targets - orb) ** 2).sum() * orb_norm * o_weight
         loss_val += ((hf_pf_targets - pf) ** 2).mean() * p_weight
         return loss_val
 
@@ -146,21 +147,15 @@ class PerNucOrbitals(ReparamModule):
         W, W_meta = self.reparam(
             'projection',
             jax.nn.initializers.normal(1 / jnp.sqrt(inp_dim), dtype=jnp.float32),
-            (
-                systems.n_nuc,
-                max_orb,
-                elec_embeddings.shape[-1],
-                self.determinants,
-            ),
+            (systems.n_nuc, max_orb, inp_dim, self.determinants),
             param_type=ParamTypes.NUCLEI,
             chunk_axis=chunk_axis,
             keep_distr=True,
         )
         # Set envelopes output correctly
-        env = self.envelope.copy(
-            out_dim=self.determinants * max_orb,
-            out_per_nuc=True,
-        )(systems)
+        env = self.envelope.copy(out_dim=self.determinants * max_orb, out_per_nuc=True)(
+            systems
+        )
 
         result: list[Array] = []
         for emb, env, W, (spins, charges) in zip(

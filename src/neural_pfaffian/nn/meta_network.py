@@ -180,6 +180,10 @@ class ParamOut(nn.Module):
                 bias=True,
             )
             inp = inp[..., None, :] + OutputBias(segment_meta, self.n_charges)(systems)
+            # Ensure non-linear dependence on the segments
+            inp = Activation(self.activation)(inp)
+            # Normalize over the segments - ensuring that they result in different inputs
+            inp = nn.LayerNorm(reduction_axes=-2, feature_axes=-2)(inp)
         # Compute output
         result = GatedLinearUnit(
             seg_out, self.activation, inp_dim, normalize=self.meta.bias
@@ -198,7 +202,7 @@ class ParamOut(nn.Module):
             'std', jax.nn.initializers.constant(self.meta.std, jnp.float32), shape
         )
         # Add bias
-        result = result + bias / jnp.sqrt(2)
+        result = (result + bias) / jnp.sqrt(2)
         # Add mean
         result += jnp.asarray(self.meta.mean, dtype=dtype)
         return result
