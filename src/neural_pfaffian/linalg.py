@@ -262,6 +262,7 @@ def antisymmetric_block_diagonal(n: int, dtype: jnp.dtype = jnp.float32):
     return block_diag(*[jnp.array([[0, 1], [-1, 0]], dtype=dtype)] * n)
 
 
+@jit
 @vectorize(signature='(n,n),(n,r)->(),()')
 def slog_pfaffian_with_updates(
     X: Float[Array, 'n_el n_el'], B: Float[Array, 'n_el rank']
