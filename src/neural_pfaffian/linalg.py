@@ -268,24 +268,25 @@ def slog_pfaffian_with_updates(
     X: Float[Array, 'n_el n_el'], B: Float[Array, 'n_el rank']
 ):
     # https://arxiv.org/pdf/2105.13098
-    sign_X, _ = slog_pfaffian(X)
+    sign_X, logdet_X = slog_pfaffian(X)
     assert B.shape[-1] % 2 == 0
     C = antisymmetric_block_diagonal(B.shape[-1] // 2, dtype=X.dtype)
-    lu_factor = jax.scipy.linalg.lu_factor(X)
-    logdet_X = jnp.log(jnp.abs(jnp.diag(lu_factor[0]))).sum() / 2
+    X_inv = skewsymmetric_inv(X)
     match B.shape[-1]:
         case 2:
             # Fast path for 2x2 blocks, we only compute the top right element
-            pf_Y = B[:, 0] @ jax.scipy.linalg.lu_solve(lu_factor, B[:, 1]) - 1
+            pf_Y = B[:, 0] @ X_inv @ B[:, 1] - 1
             sign_Y, logdet_Y = jnp.sign(pf_Y), jnp.log(jnp.abs(pf_Y))
         case 4:
             i, j = np.triu_indices(4, 1)
-            B_X_inv_B = B.T @ jax.scipy.linalg.lu_solve(lu_factor, B)
-            B_X_inv_B = (B_X_inv_B - B_X_inv_B.mT) / 2
-            a, b, c, d, e, f = B_X_inv_B[i, j]
-            a, f = a - 1, f - 1
-            pf_Y = a * f - b * e + d * c
-            sign_Y, logdet_Y = -jnp.sign(pf_Y), jnp.log(jnp.abs(pf_Y))
+            vals = (C.mT + skewsymmetric_quadratic(B.T, X_inv))[i, j]
+            log_vals = jnp.log(jnp.abs(vals))
+            signs = jnp.sign(vals)
+            logdet_Y, sign_Y = jax.nn.logsumexp(
+                log_vals[:3] + log_vals[3::][::-1],
+                b=signs[:3] * signs[3::][::-1] * jnp.array([-1, 1, -1]),
+                return_sign=True,
+            )
         case _:
             # Regular solution
             Y = C.mT + skewsymmetric_quadratic(B.T, skewsymmetric_inv(X))
