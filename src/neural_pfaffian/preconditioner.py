@@ -1,4 +1,4 @@
-from typing import Protocol, TypeVar
+from typing import Protocol
 
 import jax
 import jax.numpy as jnp
@@ -28,8 +28,6 @@ from neural_pfaffian.utils.tree_utils import (
     tree_squared_norm,
     tree_to_dtype,
 )
-
-PS = TypeVar('PS')
 
 
 class Preconditioner[PS](Protocol):
@@ -209,7 +207,7 @@ class Spring(PyTreeNode, Preconditioner[SpringState]):
             center = pmean(jnp.mean(x, axis=0))
             return x - center
 
-        jacs: list[list[jax.Array]] = []
+        jacs: list[WaveFunctionParameters] = []
         for elec, nuc, (spins, charges) in systems.iter_grouped_molecules():
             sub_systems = Systems((spins,), (charges,), elec, nuc, {})
 
@@ -217,7 +215,7 @@ class Spring(PyTreeNode, Preconditioner[SpringState]):
             @vmap(in_axes=(None, sub_systems.molecule_vmap))
             @jax.grad
             def jac_fn(params, systems):
-                return log_p(params, systems).sum()
+                return psum_if_pmap(log_p(params, systems).sum())
 
             jacs.append(jac_fn(params, sub_systems))
 

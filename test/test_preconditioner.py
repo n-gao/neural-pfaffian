@@ -28,7 +28,7 @@ def test_preconditioner(
     )
 
     grad, new_state, aux_data = apply(
-        neural_pfaffian_params, batched_systems, dE_dlogpsi, state
+        neural_pfaffian_params, batched_systems.sharded, dE_dlogpsi, state
     )
     assert_shape_and_dtype(grad, neural_pfaffian_params)
     assert_shape_and_dtype(new_state, state)

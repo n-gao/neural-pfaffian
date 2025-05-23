@@ -32,7 +32,7 @@ def tree_sub[T](tree1: T, tree2: T) -> T:
 
 def tree_dot[T](a: T, b: T) -> Array:
     return jtu.tree_reduce(
-        jnp.add, jtu.tree_map(jnp.sum, jax.tree_map(jax.lax.mul, a, b))
+        jnp.add, jtu.tree_map(jnp.sum, jtu.tree_map(jax.lax.mul, a, b))
     )
 
 

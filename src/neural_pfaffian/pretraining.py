@@ -140,18 +140,24 @@ class Pretraining(Generic[PS, O, OS], PyTreeNode):
                 )
 
                 loss_val = orbital_loss_val + reparam_loss_val
-                return loss_val, (
-                    state,
-                    dict(
-                        loss=loss_val,
-                        orbital_loss=orbital_loss_val,
-                        reparam_loss=reparam_loss_val,
-                    ),
+                return pmean_if_pmap(
+                    (
+                        loss_val,
+                        (
+                            state,
+                            dict(
+                                loss=loss_val,
+                                orbital_loss=orbital_loss_val,
+                                reparam_loss=reparam_loss_val,
+                            ),
+                        ),
+                    )
                 )
 
-            (_, (cache, loss_aux)), grad = pmean_if_pmap(
-                jax.value_and_grad(loss, has_aux=True)(state.vmc_state.params)
+            (_, (cache, loss_aux)), grad = jax.value_and_grad(loss, has_aux=True)(
+                state.vmc_state.params
             )
+
             aux_data |= loss_aux | {'grad_norm': tree_squared_norm(grad) ** 0.5}
 
             updates, pre_opt_state = self.optimizer.update(

@@ -40,6 +40,7 @@ pmin = functools.partial(jax.lax.pmin, axis_name=_BATCH_AXIS)
 pgather = functools.partial(jax.lax.all_gather, axis_name=_BATCH_AXIS)
 pall_to_all = functools.partial(jax.lax.all_to_all, axis_name=_BATCH_AXIS)
 pidx = functools.partial(jax.lax.axis_index, axis_name=_BATCH_AXIS)
+pvary = functools.partial(jax.lax.pvary, axis_name=_BATCH_AXIS)
 
 
 def wrap_if_pmap[C: Callable](p_func: C) -> C:

@@ -12,7 +12,7 @@ from neural_pfaffian.nn.wave_function import (
     WaveFunctionParameters,
 )
 from neural_pfaffian.systems import Electrons, Systems, chunk_nuclei
-from neural_pfaffian.utils.jax_utils import pmean_if_pmap
+from neural_pfaffian.utils.jax_utils import pmean_if_pmap, pvary
 
 PMove = Float[Array, 'n_mols']
 Width = Float[ArrayLike, 'n_mols']
@@ -254,6 +254,7 @@ class MetropolisHastings(PyTreeNode):
             proposal = make_block_update_proposal(width_state.width, systems, self.blocks)
             mh_update = make_mh_update(logprob_fn, proposal, systems.n_elec_by_mol)
             num_accepts = jnp.zeros(log_probs.shape, dtype=jnp.int32)
+            num_accepts = pvary(num_accepts)
 
             key, electrons, log_probs, num_accepts = jax.lax.scan(
                 lambda x, i: (mh_update(i, *x), None),
