@@ -296,7 +296,10 @@ def slog_pfaffian_with_updates(
             sign_Y, logdet_Y = slog_pfaffian(Y)
     if rank // 2 % 2 == 1:
         sign_Y *= -1
-    return sign_X * sign_Y, logdet_X + logdet_Y
+    # The base matrix is always the first element in the output
+    sign = jnp.concatenate([sign_X[None], sign_X * sign_Y])
+    logdet = jnp.concatenate([logdet_X[None], logdet_X + logdet_Y])
+    return sign, logdet
 
 
 # TODO: add tests for this
