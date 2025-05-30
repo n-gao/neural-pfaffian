@@ -25,15 +25,11 @@ def _slogpfaffian_2x2(A: jax.Array) -> tuple[jax.Array, jax.Array]:
 def _slogpfaffian_4x4(A: jax.Array) -> tuple[jax.Array, jax.Array]:
     assert A.shape == (4, 4)
     A = (A - A.mT) / 2  # make sure that gradients are correct
-    vals = A[np.triu_indices(4, 1)]
-    log_vals = jnp.log(jnp.abs(vals))
-    signs = jnp.sign(vals)
-    logdet, sign = jax.nn.logsumexp(
-        log_vals[:3] + log_vals[3::][::-1],
-        b=signs[:3] * signs[3::][::-1] * jnp.array([1, -1, 1]),
-        return_sign=True,
-    )
-    return sign, logdet
+    a, b, c, d, e, f = A[np.triu_indices(4, 1)]
+    pf = a * f - b * e + d * c
+    sign = jnp.sign(pf)
+    log_pfaffian = jnp.log(jnp.abs(pf))
+    return sign, log_pfaffian
 
 
 @jit
@@ -45,9 +41,9 @@ def householder(x: jax.Array) -> tuple[jax.Array, jax.Array, jax.Array]:
     alpha = -sign * x_norm
     v = x - jnp.array([alpha] + [0] * (x.shape[0] - 1), dtype=x.dtype)
     # a faster way to compute the norm of v where v_0 = x_0 + alpha and v_i = x_i for i > 0
-    v_rnorm = jax.lax.rsqrt(x_norm_squared - 2 * x0 * alpha + alpha * alpha)
+    v_norm_squared = x_norm_squared - 2 * x0 * alpha + alpha * alpha
+    v_rnorm = jnp.where(v_norm_squared > 0, jax.lax.rsqrt(v_norm_squared), 0.0)
     v *= v_rnorm
-    # The mask should only trigger for sparse matrices
     return v, sign, alpha
 
 
