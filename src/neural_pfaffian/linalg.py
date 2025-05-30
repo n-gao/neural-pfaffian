@@ -232,12 +232,21 @@ def _skewsymmetric_inv_2x2(A: jax.Array) -> jax.Array:
     return jnp.array([[0, -1 / a], [1 / a, 0]])
 
 
+@jax.grad
+def _skewsymmetric_inv_4x4(x):
+    # The d/dx log det(x) = -x^-1
+    return -2 * _slogpfaffian_4x4(x)[1].sum()
+
+
 @jax.custom_jvp
 def skewsymmetric_inv(A: jax.Array) -> jax.Array:
     match A.shape[-1]:
         case 2:
             # Fast path for 2x2 matrices
             return _skewsymmetric_inv_2x2(A)
+        case 4:
+            # Fast path for 4x4 matrices
+            return _skewsymmetric_inv_4x4(A)
         case x if x % 2 == 1:
             # These matrices are singular and cannot be inverted
             return jnp.full_like(A, jnp.nan)
