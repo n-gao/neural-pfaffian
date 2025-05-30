@@ -24,6 +24,7 @@ def _slogpfaffian_2x2(A: jax.Array) -> tuple[jax.Array, jax.Array]:
 @vectorize(signature='(n,n)->(),()')
 def _slogpfaffian_4x4(A: jax.Array) -> tuple[jax.Array, jax.Array]:
     assert A.shape == (4, 4)
+    A = (A - A.mT) / 2  # make sure that gradients are correct
     vals = A[np.triu_indices(4, 1)]
     log_vals = jnp.log(jnp.abs(vals))
     signs = jnp.sign(vals)
@@ -47,11 +48,6 @@ def householder(x: jax.Array) -> tuple[jax.Array, jax.Array, jax.Array]:
     v_rnorm = jax.lax.rsqrt(x_norm_squared - 2 * x0 * alpha + alpha * alpha)
     v *= v_rnorm
     # The mask should only trigger for sparse matrices
-    mask = x_norm_squared > 0
-    v = jnp.where(mask, v, jnp.zeros_like(v))
-    sign = jnp.where(mask, sign, jnp.ones_like(sign))
-    alpha = jnp.where(mask, alpha, jnp.ones_like(alpha))
-    jax.debug.print('{x}', x=(~mask).sum())
     return v, sign, alpha
 
 
@@ -95,7 +91,6 @@ def _slog_pfaffian_general(A: jax.Array) -> tuple[jax.Array, jax.Array]:
 
 @_slog_pfaffian_general.defjvp
 def _slog_pfaffian_general_jvp(primals, tangents):
-    jnp.linalg.slogdet
     (A,) = primals
     (A_dot,) = tangents
     sign_pfaffian, log_pfaffian = _slog_pfaffian_general(A)
@@ -289,16 +284,16 @@ def slog_pfaffian_with_updates(
         case _:
             Y = C.mT + skewsymmetric_quadratic(B.T, X_inv)
             sign_Y, logdet_Y = slog_pfaffian(Y)
-    if B.shape[-1] // 2 % 2 == 0:
+    if B.shape[-1] // 2 % 2 == 1:
         sign_Y *= -1
-    return -sign_X * sign_Y, logdet_X + logdet_Y
+    return sign_X * sign_Y, logdet_X + logdet_Y
 
 
 # TODO: add tests for this
 # Here we define the functions for folx such that we can use the forward-laplacian
 try:
     import folx
-    from folx.api import JAC_DIM, FunctionFlags, FwdLaplArray, FwdLaplArgs
+    from folx.api import JAC_DIM, FunctionFlags, FwdLaplArray, FwdLaplArgs, FwdJacobian
 
     def skewsymmetric_quadratic_jac_hessian_jac(
         args: FwdLaplArgs,
@@ -374,6 +369,26 @@ try:
             sparsity_threshold=sparsity_threshold,
         )(*args)
 
+    def folx_skewsymmetric_inv(args, kwargs, sparsity_threshold: int):
+        assert len(args) == 1
+
+        @vectorize(signature='(n,n),(d,n,n),(n,n)->(n,n),(d,n,n),(n,n)')
+        def inner_fn(A, A_jac, A_lap):
+            A_inv = skewsymmetric_inv(A)
+            A_inv_jac = jax.vmap(
+                skewsymmetric_quadratic, in_axes=(None, JAC_DIM), out_axes=JAC_DIM
+            )(A_inv, A_jac)
+            A_inv_lap = skewsymmetric_quadratic(A_inv, A_lap)
+            A_inv_A_jac = A_inv @ A_jac
+            A_inv_lap += 2 * jnp.einsum('iab,ibc,cd->ad', A_inv_A_jac, A_inv_A_jac, A_inv)
+            return A_inv, A_inv_jac, A_inv_lap
+
+        A = args[0].x
+        A_jac = args[0].jacobian.dense_array
+        A_lap = args[0].laplacian
+        A_inv, A_inv_jac, A_inv_lap = inner_fn(A, A_jac, A_lap)
+        return FwdLaplArray(A_inv, FwdJacobian(A_inv_jac), A_inv_lap)
+
     folx.register_function(
         'skewsymmetric_quadratic',
         folx.wrap_forward_laplacian(
@@ -388,14 +403,7 @@ try:
         'slog_pfaffian_skewsymmetric_quadratic',
         folx_slog_pfaffian_skewsymmetric_quadratic,
     )
-    folx.register_function(
-        'skewsymmetric_inv',
-        folx.wrap_forward_laplacian(
-            skewsymmetric_inv,
-            name='inv',
-            in_axes=(-2, -1),
-        ),
-    )
+    folx.register_function('skewsymmetric_inv', folx_skewsymmetric_inv)
 except ImportError:
     pass
 

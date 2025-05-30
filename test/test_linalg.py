@@ -7,6 +7,7 @@ import pytest
 
 from neural_pfaffian.linalg import (
     antisymmetric_block_diagonal,
+    skewsymmetric_inv,
     skewsymmetric_quadratic,
     slog_pfaffian,
     slog_pfaffian_with_updates,
@@ -133,6 +134,23 @@ def test_skewsymmetric_quadratic_folx():
         A = jnp.tanh(x @ W_A).reshape(8, 8)
         A = A - A.T
         return jnp.abs(skewsymmetric_quadratic(orb, A)).sum()
+
+    lapl, jac = folx.ForwardLaplacianOperator(0)(f)(elecs)
+    lapl_t, jac_t = folx.LoopLaplacianOperator()(f)(elecs)
+    lapl_t = lapl_t.sum()
+    assert_finite((lapl, jac))
+    npt.assert_allclose(jac, jac_t, atol=1e-8)
+    npt.assert_allclose(lapl, lapl_t, atol=1e-8)
+
+
+def test_skewsymmetric_inv_folx():
+    elecs = jax.random.normal(jax.random.PRNGKey(0), (12,))
+    W = jax.random.normal(jax.random.PRNGKey(1), (8, 12, 8))
+
+    def f(x):
+        A = jnp.tanh(x @ W)
+        A = A - A.T
+        return jnp.abs(skewsymmetric_inv(A)).sum()
 
     lapl, jac = folx.ForwardLaplacianOperator(0)(f)(elecs)
     lapl_t, jac_t = folx.LoopLaplacianOperator()(f)(elecs)
