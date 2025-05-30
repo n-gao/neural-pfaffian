@@ -267,12 +267,17 @@ def antisymmetric_block_diagonal(n: int, dtype: jnp.dtype = jnp.float32):
 def slog_pfaffian_with_updates(
     X: Float[Array, 'n_el n_el'], B: Float[Array, 'n_el rank']
 ):
+    n, rank = B.shape
+    assert rank % 2 == 0
+    C = antisymmetric_block_diagonal(rank // 2, dtype=X.dtype)
+    if rank >= n:
+        # There is no benefit in performing low-rank updates to same-sized matrices.
+        # We can just compute the pfaffian of the full matrix.
+        return slog_pfaffian(X + skewsymmetric_quadratic(B, C))
     # https://arxiv.org/pdf/2105.13098
     sign_X, logdet_X = slog_pfaffian(X)
-    assert B.shape[-1] % 2 == 0
-    C = antisymmetric_block_diagonal(B.shape[-1] // 2, dtype=X.dtype)
     X_inv = skewsymmetric_inv(X)
-    match B.shape[-1]:
+    match rank:
         case 2:
             # Fast path for 2x2 blocks, we only compute the top right element
             pf_Y = B[:, 0] @ X_inv @ B[:, 1] - 1
@@ -280,7 +285,7 @@ def slog_pfaffian_with_updates(
         case _:
             Y = C.mT + skewsymmetric_quadratic(B.T, X_inv)
             sign_Y, logdet_Y = slog_pfaffian(Y)
-    if B.shape[-1] // 2 % 2 == 1:
+    if rank // 2 % 2 == 1:
         sign_Y *= -1
     return sign_X * sign_Y, logdet_X + logdet_Y
 
