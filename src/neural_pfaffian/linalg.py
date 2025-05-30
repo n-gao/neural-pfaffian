@@ -24,12 +24,15 @@ def _slogpfaffian_2x2(A: jax.Array) -> tuple[jax.Array, jax.Array]:
 @vectorize(signature='(n,n)->(),()')
 def _slogpfaffian_4x4(A: jax.Array) -> tuple[jax.Array, jax.Array]:
     assert A.shape == (4, 4)
-    A = (A - A.mT) / 2  # make sure that gradients are correct
-    a, b, c, d, e, f = A[np.triu_indices(4, 1)]
-    pf = a * f - b * e + d * c
-    sign = jnp.sign(pf)
-    log_pfaffian = jnp.log(jnp.abs(pf))
-    return sign, log_pfaffian
+    vals = A[np.triu_indices(4, 1)]
+    log_vals = jnp.log(jnp.abs(vals))
+    signs = jnp.sign(vals)
+    logdet, sign = jax.nn.logsumexp(
+        log_vals[:3] + log_vals[3::][::-1],
+        b=signs[:3] * signs[3::][::-1] * jnp.array([1, -1, 1]),
+        return_sign=True,
+    )
+    return sign, logdet
 
 
 @jit
@@ -43,6 +46,12 @@ def householder(x: jax.Array) -> tuple[jax.Array, jax.Array, jax.Array]:
     # a faster way to compute the norm of v where v_0 = x_0 + alpha and v_i = x_i for i > 0
     v_rnorm = jax.lax.rsqrt(x_norm_squared - 2 * x0 * alpha + alpha * alpha)
     v *= v_rnorm
+    # The mask should only trigger for sparse matrices
+    mask = x_norm_squared > 0
+    v = jnp.where(mask, v, jnp.zeros_like(v))
+    sign = jnp.where(mask, sign, jnp.ones_like(sign))
+    alpha = jnp.where(mask, alpha, jnp.ones_like(alpha))
+    jax.debug.print('{x}', x=(~mask).sum())
     return v, sign, alpha
 
 
@@ -277,20 +286,11 @@ def slog_pfaffian_with_updates(
             # Fast path for 2x2 blocks, we only compute the top right element
             pf_Y = B[:, 0] @ X_inv @ B[:, 1] - 1
             sign_Y, logdet_Y = jnp.sign(pf_Y), jnp.log(jnp.abs(pf_Y))
-        case 4:
-            i, j = np.triu_indices(4, 1)
-            vals = (C.mT + skewsymmetric_quadratic(B.T, X_inv))[i, j]
-            log_vals = jnp.log(jnp.abs(vals))
-            signs = jnp.sign(vals)
-            logdet_Y, sign_Y = jax.nn.logsumexp(
-                log_vals[:3] + log_vals[3::][::-1],
-                b=signs[:3] * signs[3::][::-1] * jnp.array([-1, 1, -1]),
-                return_sign=True,
-            )
         case _:
-            # Regular solution
-            Y = C.mT + skewsymmetric_quadratic(B.T, skewsymmetric_inv(X))
+            Y = C.mT + skewsymmetric_quadratic(B.T, X_inv)
             sign_Y, logdet_Y = slog_pfaffian(Y)
+    if B.shape[-1] // 2 % 2 == 0:
+        sign_Y *= -1
     return -sign_X * sign_Y, logdet_X + logdet_Y
 
 
