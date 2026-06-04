@@ -44,8 +44,8 @@ def test_fwd_and_bwd(out_meta, meta_gnn, systems):
     emb_sum, grad = fwd_sum(params['params'], systems)
     assert isinstance(emb_sum, jax.Array)
     assert jnp.isfinite(emb_sum).all()
-    assert_shape_and_dtype(params['params'], grad)
     assert_finite(grad)
+    assert_shape_and_dtype(params['params'], grad)
 
 
 def test_independence(out_meta, meta_gnn, systems_float64):

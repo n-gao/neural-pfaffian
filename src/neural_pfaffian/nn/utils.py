@@ -1,8 +1,11 @@
-from typing import Callable, Sequence, TypeVar
+import functools
+from collections.abc import Callable, Sequence
+from typing import TypeVar
 
 import flax.linen as nn
 import jax
 import jax.numpy as jnp
+import numpy as np
 from jaxtyping import Array, ArrayLike, Float
 
 from neural_pfaffian.utils.jax_utils import vectorize
@@ -29,30 +32,57 @@ class Activation(nn.Module):
     def __call__(self, x: Float[Array, ' ...']) -> Float[Array, ' ...']:
         if callable(self.activation):
             return self.activation(x)
-        else:
-            return getattr(nn, self.activation)(x)
+        return getattr(nn, self.activation)(x)
 
 
 class GatedLinearUnit(nn.Module):
-    dim: int
+    dim: int | tuple[int, ...]
     activation: ActivationOrName
     hidden_dim: int | None = None
     normalize: bool = True
+    out_std: ArrayLike = 1.0
 
     @nn.compact
     def __call__(self, x: jax.Array) -> jax.Array:
-        hidden_dim = self.dim if self.hidden_dim is None else self.hidden_dim
+        if self.hidden_dim is None:
+            assert isinstance(self.dim, int)
+            hidden_dim = self.dim
+        else:
+            hidden_dim = self.hidden_dim
         if self.normalize:
             x = nn.LayerNorm()(x)
-        return nn.Dense(self.dim, use_bias=False)(
-            Activation(self.activation)(nn.Dense(hidden_dim, use_bias=False)(x))
-            * nn.Dense(hidden_dim, use_bias=False)(x)
+        hidden = Activation(self.activation)(
+            nn.Dense(hidden_dim, use_bias=False)(x),
+        ) * nn.Dense(hidden_dim, use_bias=False)(x)
+
+        # Fold out_std into the kernel init: variance_scaling(out_std**2, ...)
+        # reproduces nn.Dense's default lecun_normal at out_std == 1.0 (most
+        # callers) and rescales the output otherwise (ParamOut passes meta.std).
+        OutDense = functools.partial(
+            nn.Dense,
+            use_bias=False,
+            kernel_init=jax.nn.initializers.variance_scaling(
+                self.out_std**2, 'fan_in', 'truncated_normal'
+            ),
+        )
+
+        if isinstance(self.dim, int):
+            return OutDense(self.dim)(hidden)
+
+        output_shape = tuple(self.dim)
+
+        return OutDense(int(np.prod(output_shape)))(hidden).reshape(
+            *hidden.shape[:-1],
+            *output_shape,
         )
 
 
 @vectorize(signature='(a,b)->(c,d)', excluded={1, 2, 3})
 def pad_block_constant(
-    x: Array, top_right: ArrayLike, bottom_left: ArrayLike, bottom_right: ArrayLike
+    x: Array,
+    top_right: ArrayLike,
+    bottom_left: ArrayLike,
+    bottom_right: ArrayLike,
 ):
     n, m = x.shape
     dtype = x.dtype
@@ -68,7 +98,7 @@ def block(x: Array, top_right: Array, bottom_left: Array, bottom_right: Array):
         [
             [x, top_right[:, None]],
             [bottom_left[None], bottom_right[None, None]],
-        ]
+        ],
     )
 
 
@@ -88,7 +118,8 @@ class MLP(nn.Module):
 def normal_init(mean: Float[ArrayLike, ''], std: Float[ArrayLike, '']):
     def init(key: jax.Array, shape: Sequence[int], dtype=jnp.float32):
         return jax.random.normal(key, shape, dtype=dtype) * jnp.array(
-            std, dtype=dtype
+            std,
+            dtype=dtype,
         ) + jnp.array(mean, dtype=dtype)
 
     return init

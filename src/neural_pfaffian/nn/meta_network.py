@@ -1,22 +1,22 @@
 import functools
 import math
+from collections.abc import Sequence
 from dataclasses import KW_ONLY
 
 import flax.linen as nn
 import jax
 import jax.numpy as jnp
-import jax.tree_util as jtu
 import numpy as np
 import numpy.typing as npt
 from jaxtyping import Array, Float, PyTree
 
 from neural_pfaffian.nn.edges import BesselRbf, EdgeEmbedding, NormEnvelope
 from neural_pfaffian.nn.module import ParamMeta, ParamTypes
-from neural_pfaffian.nn.ops import segment_mean, segment_sum
 from neural_pfaffian.nn.utils import Activation, ActivationOrName, GatedLinearUnit
 from neural_pfaffian.nn.wave_function import MetaNetworkP
 from neural_pfaffian.systems import Systems
 from neural_pfaffian.utils import Modules
+from neural_pfaffian.utils.segment_utils import segment_mean, segment_sum
 
 
 class MessagePassing(nn.Module):
@@ -114,7 +114,10 @@ class OutputBias(nn.Module):
             return jax.nn.initializers.normal(1)(key, shape, dtype) * self.meta.std
 
         Embed = functools.partial(
-            nn.Embed, features=out_dim, dtype=dtype, embedding_init=embed_init
+            nn.Embed,
+            features=out_dim,
+            dtype=dtype,
+            embedding_init=embed_init,
         )
 
         match self.meta.param_type:
@@ -147,14 +150,16 @@ class ParamOut(nn.Module):
     ) -> Array:
         shape = self.meta.shape_and_dtype.shape
         dtype = self.meta.shape_and_dtype.dtype
-        out_dim = math.prod(shape)
-        if self.meta.chunk_axis is not None:
-            chunk_axis = self.meta.chunk_axis % len(shape)
+        if self.meta.param_sharing_axis is not None:
+            chunk_axis = self.meta.param_sharing_axis % len(shape)
             segments = shape[chunk_axis]
+            segment_shape = list(shape)
+            del segment_shape[chunk_axis]
+            segment_shape = tuple(segment_shape)
         else:
             chunk_axis = None
             segments = 1
-        seg_out = out_dim // segments
+            segment_shape = shape
 
         # Output bias
         bias = OutputBias(self.meta, self.n_charges)(systems)
@@ -182,23 +187,21 @@ class ParamOut(nn.Module):
             inp = inp[..., None, :] + OutputBias(segment_meta, self.n_charges)(systems)
         # Compute output
         result = GatedLinearUnit(
-            seg_out, self.activation, inp_dim, normalize=self.meta.bias
+            segment_shape,
+            self.activation,
+            inp_dim,
+            normalize=self.meta.bias,
+            out_std=self.meta.std,
         )(inp)
         # Reshape to output shape
         if chunk_axis is not None:
             # Move the segments into the right dimension
-            target_shape = list(shape)
-            del target_shape[chunk_axis]
-            result = result.reshape(-1, segments, *target_shape)
+            result = result.reshape(-1, segments, *segment_shape)
             result = jnp.moveaxis(result, 1, chunk_axis + 1)
         else:
             result = result.reshape(-1, *shape)
-        # Scale std
-        result *= self.param(
-            'std', jax.nn.initializers.constant(self.meta.std, jnp.float32), shape
-        )
         # Add bias
-        result = result + bias / jnp.sqrt(2)
+        result = (result + bias) / jnp.sqrt(2)
         # Add mean
         result += jnp.asarray(self.meta.mean, dtype=dtype)
         return result
@@ -243,16 +246,20 @@ class GraphToParameters(nn.Module):
             key_path = ''.join(map(str, path))
             name = f'ParamOut_{meta.param_type.name}_{key_path}'
             return ParamOut(meta, self.activation, self.n_charges, name=name)(
-                systems, n_embed, nn_embed, g_embed
+                systems,
+                n_embed,
+                nn_embed,
+                g_embed,
             )
 
-        result = jtu.tree_map_with_path(
-            predict_param, self.out_structure, is_leaf=lambda x: isinstance(x, ParamMeta)
+        return jax.tree.map_with_path(
+            predict_param,
+            self.out_structure,
+            is_leaf=lambda x: isinstance(x, ParamMeta),
         )
-        return result
 
 
-class MetaGNN(nn.Module, MetaNetworkP):
+class MetaGNN(nn.Module, MetaNetworkP):  # type: ignore
     # Message passing
     message_dim: int
     embedding_dim: int
@@ -266,7 +273,7 @@ class MetaGNN(nn.Module, MetaNetworkP):
     # Output structure
     out_structure: PyTree[ParamMeta] | None = None
     # Set of charges that are needed
-    charges: tuple[int, ...] | None = None
+    charges: Sequence[int] | None = None
 
     @nn.compact
     def __call__(self, systems: Systems) -> PyTree[Array]:
@@ -275,7 +282,7 @@ class MetaGNN(nn.Module, MetaNetworkP):
         # We replace the charges in systems with "Pseudo" charges that are compact
         charge_to_idx = {charge: idx for idx, charge in enumerate(self.charges)}
         systems = systems.replace(
-            charges=jtu.tree_map(lambda x: charge_to_idx[x], systems.charges),
+            charges=jax.tree.map(lambda x: charge_to_idx[x], systems.charges),
         )
         flat_charges = systems.flat_charges
 
@@ -300,7 +307,10 @@ class MetaGNN(nn.Module, MetaNetworkP):
 
         # Message passing
         n_embed = MessagePassingNetwork(
-            self.message_dim, self.embedding_dim, self.num_layers, self.activation
+            self.message_dim,
+            self.embedding_dim,
+            self.num_layers,
+            self.activation,
         )(n_embed, None, e_embed, e_norm, *systems.nuc_nuc_idx[:2])
 
         # Readout

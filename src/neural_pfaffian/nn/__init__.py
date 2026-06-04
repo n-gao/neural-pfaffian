@@ -1,16 +1,15 @@
 from .antisymmetrizer import ANTISYMMETRIZERS
-from .jastrow import JASTROWS
 from .embedding import EMBEDDINGS
 from .envelope import ENVELOPES
-from .wave_function import GeneralizedWaveFunction, WaveFunction
+from .jastrow import JASTROWS
 from .meta_network import META_NETWORKS
-
+from .wave_function import GeneralizedWaveFunction, WaveFunction
 
 __all__ = [
     'ANTISYMMETRIZERS',
-    'JASTROWS',
     'EMBEDDINGS',
     'ENVELOPES',
+    'JASTROWS',
     'META_NETWORKS',
     'GeneralizedWaveFunction',
     'WaveFunction',

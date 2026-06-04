@@ -1,0 +1,5 @@
+vmc:
+  reweight_overlap_mean: true
+  epochs: 200000
+pretraining:
+  epochs: 2000

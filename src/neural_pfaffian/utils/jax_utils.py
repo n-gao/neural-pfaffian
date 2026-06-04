@@ -5,18 +5,16 @@ https://github.com/deepmind/ferminet/tree/jax/ferminet
 """
 
 import functools
+from collections.abc import Callable, Iterable
 from pathlib import Path
-from typing import Callable, ParamSpec, TypeVar, overload
+from typing import Any, Self, TypeVar, cast, overload
 
 import jax
 import jax.numpy as jnp
-import jax.tree_util as jtu
-from chex import ArrayTree
 from flax.serialization import from_bytes, to_bytes
 from flax.struct import PyTreeNode
-from jax import core
-from jax.experimental.shard_map import shard_map
-from jax.sharding import PartitionSpec, NamedSharding
+from jax import shard_map
+from jax.sharding import NamedSharding, PartitionSpec
 
 _BATCH_AXIS = 'qmc_batch'
 
@@ -28,19 +26,9 @@ REPLICATE_SPEC = PartitionSpec()
 REPLICATE_SHARDING = NamedSharding(MESH, REPLICATE_SPEC)
 
 
-T = TypeVar('T')
-
-
 def distribute_keys(key: jax.Array) -> jax.Array:
     return jax.random.split(key, jax.device_count())[pidx()]
 
-
-Tree = TypeVar('Tree', bound=ArrayTree)
-
-# Shortcut for jax.pmap over PMAP_AXIS_NAME. Prefer this if pmapping any
-# function which does communications or reductions.
-P = ParamSpec('P')
-R = TypeVar('R')
 
 pmean = functools.partial(jax.lax.pmean, axis_name=_BATCH_AXIS)
 psum = functools.partial(jax.lax.psum, axis_name=_BATCH_AXIS)
@@ -51,14 +39,17 @@ pall_to_all = functools.partial(jax.lax.all_to_all, axis_name=_BATCH_AXIS)
 pidx = functools.partial(jax.lax.axis_index, axis_name=_BATCH_AXIS)
 
 
-C = TypeVar('C', bound=Callable)
+def pvary(x):
+    if hasattr(jax.lax, 'pvary'):
+        return jax.lax.pvary(x, axis_name=_BATCH_AXIS)
+    return x
 
 
-def wrap_if_pmap(p_func: C) -> C:
+def wrap_if_pmap[C: Callable](p_func: C) -> C:
     @functools.wraps(p_func)
-    def p_func_if_pmap(obj: T, *args, **kwargs) -> T:
+    def p_func_if_pmap[T](obj: T, *args, **kwargs) -> T:
         try:
-            core.axis_frame(_BATCH_AXIS)
+            jax.lax.axis_index(_BATCH_AXIS)
             return p_func(obj, *args, **kwargs)
         except NameError:
             return obj
@@ -77,15 +68,19 @@ C = TypeVar('C', bound=Callable)
 
 
 @overload
-def jit(fun: None = None, *jit_args, **jit_kwargs) -> Callable[[C], C]: ...
+def jit[C: Callable](fun: None = None, *jit_args, **jit_kwargs) -> Callable[[C], C]: ...
 
 
 @overload
-def jit(fun: C, *jit_args, **jit_kwargs) -> C: ...
+def jit[C: Callable](fun: C, *jit_args, **jit_kwargs) -> C: ...
 
 
 @functools.wraps(jax.jit)
-def jit(fun: C | None = None, *jit_args, **jit_kwargs) -> C | Callable[[C], C]:
+def jit[C: Callable](
+    fun: C | None = None,
+    *jit_args,
+    **jit_kwargs,
+) -> C | Callable[[C], C]:
     def inner_jit(fun: C) -> C:
         jitted = jax.jit(fun, *jit_args, **jit_kwargs)
 
@@ -106,10 +101,14 @@ def vectorize(fun: None = None, *vec_args, **vec_kwargs) -> Callable[[C], C]: ..
 
 
 @overload
-def vectorize(fun: C, *vec_args, **vec_kwargs) -> C: ...
+def vectorize[C: Callable](fun: C, *vec_args, **vec_kwargs) -> C: ...
 
 
-def vectorize(fun: C | None = None, *vec_args, **vec_kwargs) -> C | Callable[[C], C]:
+def vectorize[C: Callable](
+    fun: C | None = None,
+    *vec_args,
+    **vec_kwargs,
+) -> C | Callable[[C], C]:
     def inner_jit(fun: C) -> C:
         vectorized = jnp.vectorize(fun, *vec_args, **vec_kwargs)
 
@@ -126,9 +125,13 @@ def vectorize(fun: C | None = None, *vec_args, **vec_kwargs) -> C | Callable[[C]
 
 
 @functools.wraps(shard_map)
-def shmap(fun: C | None = None, *shmap_args, **shmap_kwargs) -> C | Callable[[C], C]:
+def shmap[C: Callable](
+    fun: C | None = None,
+    *shmap_args,
+    **shmap_kwargs,
+) -> C | Callable[[C], C]:
     def inner_shmap(fun: C) -> C:
-        return shard_map(fun, MESH, *shmap_args, **shmap_kwargs)  # type: ignore
+        return shard_map(fun, *shmap_args, mesh=MESH, **shmap_kwargs)  # type: ignore
 
     if fun is None:
         return inner_shmap
@@ -141,11 +144,15 @@ def vmap(fun: None = None, *vmap_args, **vmap_kwargs) -> Callable[[C], C]: ...
 
 
 @overload
-def vmap(fun: C, *vmap_args, **vmap_kwargs) -> C: ...
+def vmap[C: Callable](fun: C, *vmap_args, **vmap_kwargs) -> C: ...
 
 
 @functools.wraps(jax.vmap)
-def vmap(fun: C | None = None, *vmap_args, **vmap_kwargs) -> C | Callable[[C], C]:
+def vmap[C: Callable](
+    fun: C | None = None,
+    *vmap_args,
+    **vmap_kwargs,
+) -> C | Callable[[C], C]:
     def inner_vmap(fun: C) -> C:
         vmapped = jax.vmap(fun, *vmap_args, **vmap_kwargs)
 
@@ -161,18 +168,59 @@ def vmap(fun: C | None = None, *vmap_args, **vmap_kwargs) -> C | Callable[[C], C
     return inner_vmap(fun)
 
 
+Axis = int | tuple[int, ...]
+
+
+def pad_along_axis(
+    array: jax.Array,
+    pad_width: int | tuple[int, int],
+    axis: Axis = -1,
+    mode: str | Callable[..., Any] = 'constant',
+    **kwargs,
+) -> jax.Array:
+    """
+    Pads an array along a specified axis.
+    This is a convenience wrapper around `jax.numpy.pad` that simplifies padding.
+    Instead of specifying padding along all axes, you can specify the axes
+    along which to pad.
+
+    Args:
+        array: The input array to pad.
+        pad_width: The number of elements to pad on both sides of the specified axis.
+            If `pad_width` is an integer, it will pad all axes on both sides.
+            If `pad_width` is a tuple, it should contain two integers specifying the
+            number of elements to pad on both sides of the specified axes.
+        axis: The axes along which to pad the array.
+            Defaults to padding the last axis -1.
+
+    Returns:
+        A new array with the specified padding applied.
+    """
+    if isinstance(pad_width, int):
+        pad_width = (pad_width, pad_width)
+    full_pad_width = [(0, 0)] * array.ndim
+
+    if isinstance(axis, int):
+        full_pad_width[axis] = pad_width
+    elif isinstance(axis, Iterable):
+        for ax in axis:
+            full_pad_width[ax] = pad_width
+    return jnp.pad(array, full_pad_width, mode=mode, **kwargs)
+
+
 class SerializeablePyTree(PyTreeNode):
     serialize = to_bytes
     deserialize = from_bytes
 
     def to_file(self, path: str | Path):
-        Path(path).open('wb').write(self.serialize())
+        with Path(path).open('wb') as f:
+            f.write(self.serialize())
 
-    def from_file(self, path: str | Path):
-        return self.deserialize(Path(path).read_bytes())
+    def from_file(self, path: str | Path) -> Self:
+        return cast('Self', self.deserialize(Path(path).read_bytes()))
 
     @property
-    def partition_spec(self):
+    def partition_spec(self) -> PartitionSpec | Self:
         return REPLICATE_SPEC
 
     @property
@@ -180,7 +228,7 @@ class SerializeablePyTree(PyTreeNode):
         def to_sharding(x: PartitionSpec):
             return NamedSharding(MESH, x)
 
-        return jtu.tree_map(
+        return jax.tree.map(
             to_sharding,
             self.partition_spec,
             is_leaf=lambda x: isinstance(x, PartitionSpec),

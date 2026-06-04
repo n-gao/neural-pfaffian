@@ -1,18 +1,22 @@
-from typing import Sequence, Tuple
+from collections.abc import Sequence
 
 import flax.linen as nn
 import jax
 import jax.nn as jnn
 import jax.numpy as jnp
-import jax.tree_util as jtu
 import numpy as np
 from jaxtyping import Array, Float
 
 from neural_pfaffian.nn.module import ParamTypes, ReparamModule
-from neural_pfaffian.nn.ops import segment_mean, segment_sum
-from neural_pfaffian.nn.utils import Activation, ActivationOrName, log1p_rescale, residual
+from neural_pfaffian.nn.utils import (
+    Activation,
+    ActivationOrName,
+    log1p_rescale,
+    residual,
+)
 from neural_pfaffian.nn.wave_function import EmbeddingP
 from neural_pfaffian.systems import Systems
+from neural_pfaffian.utils.segment_utils import segment_mean, segment_sum
 
 SingleStream = Float[Array, 'n_elec single_dim']
 PairStream = tuple[Float[Array, 'n_pairs pair_dim'], Float[Array, 'n_pairs pair_dim']]
@@ -22,13 +26,15 @@ def aggregate_features(
     systems: Systems,
     h_one: SingleStream,
     h_two: PairStream,
-) -> Tuple[SingleStream, jax.Array]:
+) -> tuple[SingleStream, jax.Array]:
     spins = np.array(systems.spins)
     segments = np.repeat(jnp.arange(spins.size), spins.reshape(-1))
 
     # We use segment_sum since segment_mean requires two segment_sums
     g_inp = segment_sum(h_one, segments, systems.n_mols * 2, True).reshape(
-        systems.n_mols, 2, -1
+        systems.n_mols,
+        2,
+        -1,
     ) / np.maximum(spins[..., None], 1)
     g_inp = jnp.stack(
         [
@@ -40,8 +46,10 @@ def aggregate_features(
     g_inp = g_inp.reshape(2 * systems.n_mols, -1)
 
     pair = []
-    for h, diag in zip(h_two, (True, False)):
-        pair.append(segment_mean(h, systems.elec_pair_mask(diag), systems.n_elec, True))
+    for h, diag in zip(h_two, (True, False), strict=False):
+        pair.append(
+            segment_mean(h, systems.elec_pair_mask(diag=diag), systems.n_elec, True),
+        )
     return jnp.concatenate([h_one, *pair], axis=-1), g_inp
 
 
@@ -76,10 +84,10 @@ class FermiLayer(nn.Module):
             # diagonal and off diagonal terms.
             h_two_new = tuple(nn.Dense(self.pair_out)(h) for h in h_two)
             if h_two_new[0].shape != h_two[0].shape:
-                h_two = jtu.tree_map(jnp.tanh, h_two_new)
+                h_two = jax.tree.map(jnp.tanh, h_two_new)
             else:
-                h_two_new = jtu.tree_map(activation, h_two_new)
-                h_two = jtu.tree_map(residual, h_two, h_two_new)
+                h_two_new = jax.tree.map(activation, h_two_new)
+                h_two = jax.tree.map(residual, h_two, h_two_new)
         return h_one, h_two
 
 
@@ -131,6 +139,8 @@ class FermiNet(nn.Module, EmbeddingP):
         h_one, h_two = FermiNetFeatures(self.embedding_dim)(systems)
         for single_dim, pair_dim in self.hidden_dims:
             h_one, h_two = FermiLayer(single_dim, pair_dim, self.activation)(
-                systems, h_one, h_two
+                systems,
+                h_one,
+                h_two,
             )
         return h_one

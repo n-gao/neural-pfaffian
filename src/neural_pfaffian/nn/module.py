@@ -1,5 +1,6 @@
+from collections.abc import Callable
 from enum import Enum
-from typing import Callable, Final, TypeVar, TypeVarTuple
+from typing import Final, TypeVar, TypeVarTuple
 
 import flax.linen as nn
 import jax
@@ -39,7 +40,13 @@ class ParamMeta(PyTreeNode):
     mean: ArrayLike
     std: ArrayLike
     bias: bool
-    chunk_axis: int | None
+    param_sharing_axis: int | None
+    """The predicted parameter will have a shared prediction head over this axis.
+    Individual elements along this axis are differentiated via a bias term added
+    to the prediction head's input.
+    The added bias is a charge-dependent embedding vector for NUCLEI parameters,
+    a free parameter for GLOBAL parameters
+    and and a charge-charge-dependent vector for NUCLEI_NUCLEI parameters."""
     keep_distr: bool
 
 
@@ -51,7 +58,7 @@ class ReparamModule(nn.Module):
         *init_args: *Ts,
         param_type: ParamTypes,
         bias: bool = True,
-        chunk_axis: int | None = None,
+        param_sharing_axis: int | None = None,
         keep_distr: bool = False,
     ):
         # Like in self.param, we add the random key
@@ -62,7 +69,7 @@ class ReparamModule(nn.Module):
         exp_shape = jax.eval_shape(lambda: init_fn(jax.random.key(0), *init_args))
         if parameter.shape != exp_shape.shape:
             raise ValueError(
-                f'Expected shape {exp_shape.shape} for parameter {name}, got {parameter.shape}'
+                f'Expected shape {exp_shape.shape} for parameter {name}, got {parameter.shape}',
             )
 
         def array_to_meta(array: A):
@@ -73,7 +80,7 @@ class ReparamModule(nn.Module):
                 mean=array.mean(),
                 std=array.std(),
                 bias=bias,
-                chunk_axis=chunk_axis,
+                param_sharing_axis=param_sharing_axis,
                 keep_distr=keep_distr,
             )
 
@@ -104,7 +111,7 @@ class ReparamModule(nn.Module):
                 param_type=ParamTypes.NUCLEI,
                 keep_distr=keep_distr,
             )[0][center_idx]
-        elif max_charge >= 0:
+        if max_charge >= 0:
             # Adaption per species
             return nn.Embed(
                 num_embeddings=max_charge,
@@ -112,5 +119,4 @@ class ReparamModule(nn.Module):
                 embedding_init=lambda key, shape, dtype: init_fn(key, tuple(shape)),
                 name=name,
             )(systems.flat_charges).reshape(systems.n_nuc, *shape)[center_idx]
-        else:
-            raise ValueError(f'Invalid max_charge {max_charge}')
+        raise ValueError(f'Invalid max_charge {max_charge}')

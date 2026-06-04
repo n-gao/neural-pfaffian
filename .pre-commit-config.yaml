@@ -1,21 +1,28 @@
 repos:
   - repo: https://github.com/pre-commit/pre-commit-hooks
-    rev: v5.0.0
+    rev: v6.0.0
     hooks:
       - id: check-case-conflict
       - id: check-toml
       - id: check-xml
       - id: check-yaml
+      - id: check-json
       - id: check-added-large-files
       - id: trailing-whitespace
+        args: [--markdown-linebreak-ext=md]
+      - id: end-of-file-fixer
 
   - repo: https://github.com/astral-sh/ruff-pre-commit
-    rev: v0.11.0
+    rev: v0.14.6
     hooks:
       - id: ruff # Run the linter.
         args: [--fix]
       # Wandb breaks this
-      # - id: ruff # Sort improts
+      # - id: ruff # Sort imports
       #   name: sort imports with ruff
       #   args: [--select, I, --fix]
       - id: ruff-format # Run the formatter.
+  - repo: https://github.com/RobertCraigie/pyright-python
+    rev: v1.1.407
+    hooks:
+      - id: pyright
