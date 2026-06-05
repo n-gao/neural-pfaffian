@@ -1,0 +1,24 @@
+seml:
+  executable: src/neural_pfaffian/main.py
+  output_dir: ~/slurm-output
+  project_root_dir: ../../
+
+slurm:
+  - sbatch_options:
+      gres: gpu:2
+      cpus-per-task: 16
+      mem: 64G
+      partition: gpu_h100,gpu_h200
+      time: 1-00:00:00
+
+fixed:
+  logging:
+    wandb:
+      mode: "online"
+      project: "ExcitedPfaffian"
+      job_type: "experiment"
+      notes: "testing public code"
+      tags: ["public-code-testing"]
+
+  +: config/excited-states/excited-state-defaults.yaml
+  +systems: config/systems/excited/be33.yaml

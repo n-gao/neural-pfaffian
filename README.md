@@ -82,7 +82,7 @@ seml n2_ablation add config/seml/train_n2.yaml start
 or for an excited-state computation
 
 ```sh
-seml be_10_states add config/seml/train_be10.yaml start
+seml be_10_states add config/seml/train_be33.yaml start
 ```
 
 Without `seml`:
@@ -94,7 +94,7 @@ neural_pfaffian with config/systems/n2.yaml
 or
 
 ```bash
-neural_pfaffian with config/excited-states/excited-state-defaults.yaml config/systems/excited/be10.yaml
+neural_pfaffian with config/excited-states/excited-state-defaults.yaml config/systems/excited/be33.yaml
 ```
 
 ## Contact
