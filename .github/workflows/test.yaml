@@ -11,8 +11,10 @@ jobs:
   test:
     runs-on: ubuntu-latest
     steps:
-      # Checkout the code
+      # Checkout the code (lfs: true fetches the .npz regression fixtures)
       - uses: actions/checkout@v4
+        with:
+          lfs: true
       # Install uv
       - name: Install uv
         uses: astral-sh/setup-uv@v3
