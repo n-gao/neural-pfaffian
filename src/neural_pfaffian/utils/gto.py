@@ -20,7 +20,8 @@ Taken from: https://github.com/google-deepmind/ferminet/tree/main"""
 import collections
 import functools
 import itertools
-from typing import Any, Mapping
+from collections.abc import Mapping
+from typing import Any
 
 import jax
 import jax.numpy as jnp
@@ -56,8 +57,14 @@ def normalize_primitive_weights(basis_list):
     spec_shape = bas[:, 3:1:-1] + [[1, 0]]
     stop_ptrs = start_ptrs + spec_shape[:, 0] * spec_shape[:, 1]
     basis_list = []
-    for l, start, stop, shape in zip(angl, start_ptrs, stop_ptrs, spec_shape):
-        basis_list.append([l] + env[start:stop].reshape(shape).T.tolist())  # type: ignore
+    for l, start, stop, shape in zip(
+        angl,
+        start_ptrs,
+        stop_ptrs,
+        spec_shape,
+        strict=False,
+    ):
+        basis_list.append([l, *env[start:stop].reshape(shape).T.tolist()])
     return basis_list
 
 
@@ -89,7 +96,7 @@ def full_cart2sph(l: int, reorder_p: bool = False) -> np.ndarray:
     col_id = [unique_cart.index(tuple(sorted(x))) for x in complete_cart]
     row_id = np.arange(len(complete_cart))
     indicator = np.array(
-        sparse.coo_matrix((np.ones_like(row_id), (row_id, col_id))).todense()
+        sparse.coo_matrix((np.ones_like(row_id), (row_id, col_id))).todense(),
     )
     # take the average over symmetrically related cartesian derivatives
     indicator = indicator / np.sum(indicator, axis=0, keepdims=True)
@@ -97,7 +104,7 @@ def full_cart2sph(l: int, reorder_p: bool = False) -> np.ndarray:
     complete_cart2sph = indicator @ pyscf.gto.cart2sph(l)
     if l == 1 and reorder_p:
         return np.array(
-            [complete_cart2sph[2], complete_cart2sph[0], complete_cart2sph[1]]
+            [complete_cart2sph[2], complete_cart2sph[0], complete_cart2sph[1]],
         )
     return complete_cart2sph
 
@@ -133,7 +140,8 @@ def solid_harmonic(r: jax.Array, l_max: int) -> jax.Array:
     zero_harmonics = legendre[0:1]
     negative_harmonics = np.sqrt(2) * ((legendre[1:] * jnp.sin(angle[1:])) * sign)[::-1]
     harmonics = jnp.concatenate(
-        [negative_harmonics, zero_harmonics, positive_harmonics], axis=0
+        [negative_harmonics, zero_harmonics, positive_harmonics],
+        axis=0,
     )
 
     ell = jnp.arange(l_max + 1)[None, :, None]
@@ -210,7 +218,7 @@ class Mol:
 
         basis_dict = {
             atom: get_basis_for_atom(mol.basis, atom)
-            for atom in set(list(zip(*atom_list))[0])
+            for atom in set(next(zip(*atom_list, strict=False)))
         }
         return Mol(atom_list, basis_dict)
 
@@ -220,7 +228,7 @@ class Mol:
                 basis[0]  # pylint: disable=g-complex-comprehension
                 for atom in self.atom_list
                 for basis in self.basis_dict[atom[0]]
-            ]
+            ],
         )
 
     def _get_orbital_construction_dict(self):
@@ -288,7 +296,7 @@ class Mol:
                         construction_spec['angular_index'].append((l, m, atom_id))
                     cshell_id += 1
         result = {k: np.asarray(v) for k, v in construction_spec.items()}
-        result['atom_centres'] = np.array(list(zip(*self.atom_list))[1])
+        result['atom_centres'] = np.array(list(zip(*self.atom_list, strict=False))[1])
         return result
 
     def eval_gto(self, coords: jnp.ndarray) -> jnp.ndarray:
@@ -337,7 +345,9 @@ class Mol:
 
         # contract the primitives
         g = jax.ops.segment_sum(  # [CSHELL, G]
-            g.T, self._spec['cshell_id'], num_segments=self._num_segments
+            g.T,
+            self._spec['cshell_id'],
+            num_segments=self._num_segments,
         )
         radial_part = g[self._spec['radial_index']]  # [CGTO, G]
 

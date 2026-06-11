@@ -52,11 +52,9 @@ wave_function:
           "8": 8
           "9": 8
           "10": 8
-        hf_match_steps: 50
-        hf_match_lr: 1
         hf_match_orbitals: 1
-        hf_match_pfaffian: 1.e-3
-        hf_match_ema: 0.999
+        hf_match_antisymmetrizer: 1
+        hf_match_noise_std: 0.0
       slater:
         determinants: 16
 
@@ -81,8 +79,9 @@ wave_function:
 # VMC
 #########################################################################################
 vmc:
-  epochs: 100_000
-  batch_size: 128 # by default full batch
+  epochs: 80_000
+  batch_size: 512 # by default full batch
+  reweight_overlap_mean: false # importance-sample only the mean-overlap estimate; false -> no reweighting
 
   thermalizing_epochs: 1000
 
@@ -95,6 +94,8 @@ vmc:
     blocks: 1
     nonlocal_steps: 0
     nonlocal_step_width: 2.0
+    langevin_steps: 0
+    langevin_init_width: 1.0
 
   preconditioner:
     module: spring # ['identity', 'cg', 'spring']
@@ -102,13 +103,20 @@ vmc:
       spring:
         damping: 1.e-3
         decay_factor: 0.99
+        aux_grad_damping: 0.0
+        aux_grad_cutoff: 0.0
+        aux_grad_global_damping: 1.e-3
+        cutoff_to_zero: True
         dtype: float64
+        clip_eigenvals: 1.e-6
       identity: {}
       cg:
         damping: 1.e-3
         decay_factor: 0.99
         maxiter: 100
+        precondition_aux_grads: False
 
+  # The following optimizer setup is typically used with SPRING or other preconditioners
   optimizer:
     - transform: scale_by_hyperbolic_schedule
       learning_rate: 0.02
@@ -117,41 +125,133 @@ vmc:
       max_norm: 0.032 # sqrt(1.e-3)
 
   clipping:
-    module: median # ['none', 'mean', 'median']
+    module: quantile # ['none', 'mean', 'median', 'quantile']
     args:
       none: {}
       mean:
         max_deviation: 5
       median:
         max_deviation: 5
+      quantile:
+        max_deviation: 5
+        quantile: 0.95
+
+  spin_penalty:
+    enabled: False
+    penalty_scale: 8.0
+    max_grad_norm: 10.0
+    penalty_type: "minimize" # ["minimize", "snap"]
+    decay: 0.999
+
+    masking:
+      module: quantile # ['none', 'iterative_mean', 'quantile']
+      args:
+        none: {}
+        iterative_mean:
+          max_deviation: 10
+          iterations: 1
+        quantile:
+          max_deviation: 10
+          quantile: 0.95
+
+    clipping:
+      module: quantile # ['none', 'mean', 'median', 'quantile']
+      args:
+        none: {}
+        mean:
+          max_deviation: 5
+        median:
+          max_deviation: 5
+        quantile:
+          max_deviation: 5
+          quantile: 0.95
+
+  state_overlap:
+    dtype: float64
+    penalty_scale: 4.0 # global scale of penalty
+
+    clipping:
+      module: quantile # ['none', 'mean', 'median', 'quantile']
+      args:
+        none: {}
+        mean:
+          max_deviation: 5
+        median:
+          max_deviation: 5
+        quantile:
+          max_deviation: 5
+          quantile: 0.95
+
+    # Outlier masking for the reweighted overlap-mean estimate.
+    # Only takes effect when vmc.reweight_overlap_mean is true.
+    masking:
+      module: quantile
+      args:
+        none: {}
+        quantile:
+          max_deviation: 10
+          quantile: 0.95
+        iterative_mean:
+          max_deviation: 10
+          iterations: 1
+
+    scaler:
+      module: diff-std
+      args:
+        none: {}
+        diff-std:
+          decay_schedule:
+            schedule: clipped_hyperbolic_growth
+            init_value: 0.5
+            delay: 10
+            bound: 0.999
+          min_scale_factor: 0.001
+          max_scale_factor: 5.0
+          asym_scale: 1000
+          asym_strategy: "step" # ["none", "sigmoid", "softplus", "step"]
 
 #########################################################################################
 # Pretraining
 #########################################################################################
 pretraining:
-  epochs: 10000
-  batch_size: 128 # by default full batch
-  basis: sto-6g
+  epochs: 2_000
+  batch_size: 512 # by default full batch
+  basis: aug-cc-pVTZ
+  hf_config:
+    n_tuple_excitation: 2
+    exclude_core: False
+    hf_method: rohf # ['rhf', 'uhf', 'rohf']
+    use_smearing: False
+    minimal_spin_only: False
+
+  mcmc:
+    hf_fraction: 0.0
+    steps: 20
+    init_width: 0.02
+    window_size: 20
+    target_pmove: 0.525
+    error: 0.025
+    blocks: 1
+    nonlocal_steps: 0
+    nonlocal_step_width: 2.0
+    langevin_steps: 0
+    langevin_init_width: 0.5
 
   optimizer:
     - transform: clip_by_global_norm
-      max_norm: 1
+      max_norm: 1.0
     - transform: scale_by_adam
     - transform: filter_by_param
-      name:
-        - kernel
-        - pi
-        - sigma
-      transformations: [scale_by_trust_ratio]
+      name: kernel
+      transformations: ["scale_by_trust_ratio"]
     - transform: filter_by_param
       name: embedding
-      transformations: [scale_by_trust_ratio_embeddings]
+      transformations: ["scale_by_trust_ratio_embeddings"]
     - transform: scale_by_hyperbolic_schedule
-      learning_rate: 1.e-3
-      delay: 10_000
+      learning_rate: 0.001
+      delay: 1000
 
   reparam_loss_scale: 1.e-6
-  sample_from: hf
 
 #########################################################################################
 # Logging
@@ -159,4 +259,4 @@ pretraining:
 logging:
   wandb: {}
   file:
-    directory: null
+    base_dir: checkpoints

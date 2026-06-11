@@ -1,4 +1,4 @@
-from typing import Sequence
+from collections.abc import Sequence
 
 import flax.linen as nn
 import jax
@@ -43,10 +43,14 @@ class CuspJastrow(ReparamModule, JastrowP):
 
         result = jnp.zeros((), elec_embeddings.dtype)
         result += w_par * jax.ops.segment_sum(
-            -(1 / 4) * a_par**2 / (a_par + dists_same), seg_same, systems.n_mols
+            -(1 / 4) * a_par**2 / (a_par + dists_same),
+            seg_same,
+            systems.n_mols,
         )
         result += w_anti * jax.ops.segment_sum(
-            -(1 / 2) * a_anti**2 / (a_anti + dists_diff), seg_diff, systems.n_mols
+            -(1 / 2) * a_anti**2 / (a_anti + dists_diff),
+            seg_diff,
+            systems.n_mols,
         )
         return jnp.ones_like(result), result
 
@@ -55,5 +59,5 @@ JASTROWS = Modules[JastrowP](
     {
         cls.__name__.lower().replace('jastrow', ''): cls
         for cls in [MLPJastrow, CuspJastrow]
-    }
+    },
 )

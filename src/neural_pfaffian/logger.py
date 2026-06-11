@@ -1,19 +1,28 @@
+import atexit
+import contextlib
+from collections.abc import Sequence
 from copy import deepcopy
+from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-import wandb
+import jax
 import yaml
 
+import wandb
 from neural_pfaffian.systems import Systems
 from neural_pfaffian.utils import Modules
 from neural_pfaffian.vmc import VMCState
 
 
 class LoggerAbc:
+    def __init__(self, run_name: str, **_): ...
+
     def _log_data(self, data: dict[str, Any]): ...
 
     def log_data(self, data: dict[str, Any], prefix: str | None = None):
+        if prefix is None:
+            return self._log_data(data)
         return self._log_data({f'{prefix}/{k}': v for k, v in data.items()})
 
     def update_config(self, config: dict[str, Any]) -> dict[str, Any]: ...
@@ -23,7 +32,9 @@ class LoggerAbc:
     def checkpoint(self, state: VMCState, systems: Systems): ...
 
     def load_checkpoint(
-        self, state: VMCState, systems: Systems
+        self,
+        state: VMCState,
+        systems: Systems,
     ) -> tuple[VMCState, Systems]: ...
 
     def has_checkpoint(self) -> bool:
@@ -31,19 +42,21 @@ class LoggerAbc:
 
 
 class WandbLogger(LoggerAbc):
-    def __init__(self, **kwargs):
-        self.run = wandb.init(**kwargs, resume='allow')
+    def __init__(self, run_name: str, **kwargs):
+        config: dict[str, Any] = {'name': run_name} | kwargs
+        self.run = wandb.init(**config, resume='allow')
 
     def _log_data(self, data: dict[str, Any]):
         wandb.log(data)
 
     def update_config(self, config: dict[str, Any]):
         config = deepcopy(config)
-        config['logging']['wandb'] = config['logging'].get('wandb', {}) | dict(
-            id=self.run.id,
-            project=self.run.project,
-            entity=self.run.entity,
-        )
+        config['logging']['wandb'] = config['logging'].get('wandb', {}) | {
+            'id': self.run.id,
+            'project': self.run.project,
+            'entity': self.run.entity,
+            'name': self.run.name,
+        }
         return config
 
     def config(self, config: dict[str, Any]):
@@ -57,9 +70,10 @@ class WandbLogger(LoggerAbc):
         raise NotImplementedError
 
 
-class LogFile:
+class CsvLogFile:
     def __init__(self, path: Path | str, delimiter: str = ','):
         self.path = Path(path)
+        self.path.parent.mkdir(parents=True, exist_ok=True)
         if self.path.exists():
             headers = self.path.open('r').readline().strip().split(',')
             if len(headers) == 0 or headers == ['']:
@@ -67,23 +81,49 @@ class LogFile:
         else:
             headers = None
         self.headers = headers
-        self._logfile = open(self.path, 'a')
+        self.delimiter = delimiter
+        self._logfile = open(self.path, 'a')  # noqa: SIM115
+
+        atexit.register(self.close)
 
     def write(self, data: dict[str, Any]):
         if self.headers is None:
             self.headers = list(data.keys())
-            self._logfile.write(','.join(self.headers) + '\n')
-        self._logfile.write(','.join(str(data.get(h, '')) for h in self.headers) + '\n')
+            self._logfile.write(self.delimiter.join(self.headers) + '\n')
+        self._logfile.write(
+            self.delimiter.join(str(data.get(h, '')) for h in self.headers) + '\n',
+        )
         self._logfile.flush()
+
+    def close(self):
+        if not self._logfile.closed:
+            self._logfile.close()
+
+    def __del__(self):
+        if not self._logfile.closed:
+            self._logfile.close()
 
 
 class FileLogger(LoggerAbc):
-    def __init__(self, directory: Path | str, delimiter: str = ','):
-        assert directory is not None
+    def __init__(
+        self,
+        run_name: str,
+        base_dir: Path | str = '.',
+        directory: Path | str | None = None,
+        delimiter: str = ',',
+    ):
+        if directory is None:
+            directory = Path(base_dir) / str(
+                run_name
+                + datetime.now().strftime(
+                    '_%Y-%m-%d_%H-%M-%S',
+                ),
+            )
+
         self.directory = Path(directory).resolve().absolute()
         self.directory.mkdir(parents=True, exist_ok=True)
         self.delimiter = delimiter
-        self._log_files: dict[str, LogFile] = {}
+        self._csv_log_files: dict[str, CsvLogFile] = {}
 
     @property
     def config_path(self):
@@ -100,16 +140,19 @@ class FileLogger(LoggerAbc):
     def logfile_path(self, prefix: str):
         return self.directory / f'{prefix}_log.csv'
 
-    def logfile(self, prefix: str):
-        if prefix not in self._log_files:
-            self._log_files[prefix] = LogFile(self.logfile_path(prefix), self.delimiter)
-        return self._log_files[prefix]
+    def csv_logfile(self, prefix: str):
+        if prefix not in self._csv_log_files:
+            self._csv_log_files[prefix] = CsvLogFile(
+                self.logfile_path(prefix),
+                self.delimiter,
+            )
+        return self._csv_log_files[prefix]
 
     def update_config(self, config: dict[str, Any]) -> dict[str, Any]:
         config = deepcopy(config)
-        config['logging']['file'] = config['logging'].get('file', {}) | dict(
-            directory=str(self.directory)
-        )
+        config['logging']['file'] = config['logging'].get('file', {}) | {
+            'directory': str(self.directory),
+        }
         return config
 
     def config(self, config: dict[str, Any]):
@@ -118,7 +161,7 @@ class FileLogger(LoggerAbc):
     def log_data(self, data: dict[str, Any], prefix: str | None = None):
         if prefix is None:
             prefix = 'main'
-        self.logfile(prefix).write(data)
+        self.csv_logfile(prefix).write(data)
 
     def checkpoint(self, state: VMCState, systems: Systems):
         state.to_file(self.state_path)
@@ -132,10 +175,28 @@ class FileLogger(LoggerAbc):
 
 
 class Logger:
-    def __init__(self, logging_config):
-        self.loggers = LOGGERS.try_init_many(logging_config)
+    def __init__(
+        self,
+        system_name: str,
+        logging_config,
+    ):
+        config = deepcopy(logging_config)
+
+        # Generate a unique, timestamped name for the run
+        run_name = f'{system_name}-{datetime.now().strftime("%Y-%m-%d_%H-%M-%S")}'
+
+        # Update the logging config with the run name
+        if isinstance(logging_config, dict):
+            config = {k: v | {'run_name': run_name} for k, v in config.items()}
+        elif isinstance(logging_config, Sequence):
+            config = [
+                (module[0], module[1] | {'run_name': run_name}) for module in config
+            ]
+
+        self.loggers = LOGGERS.try_init_many(config)
 
     def log(self, data: dict[str, Any], prefix: str | None = None):
+        data = jax.device_get(data)
         for logger in self.loggers:
             logger.log_data(data, prefix)
 
@@ -148,10 +209,8 @@ class Logger:
 
     def checkpoint(self, state: VMCState, systems: Systems):
         for logger in self.loggers:
-            try:
+            with contextlib.suppress(NotImplementedError):
                 logger.checkpoint(state, systems)
-            except NotImplementedError:
-                pass
 
     def load_checkpoint(self, state: VMCState, systems: Systems):
         for logger in self.loggers:
@@ -164,5 +223,8 @@ class Logger:
 
 
 LOGGERS = Modules[LoggerAbc](
-    {cls.__name__.lower().replace('logger', ''): cls for cls in [WandbLogger, FileLogger]}
+    {
+        cls.__name__.lower().replace('logger', ''): cls
+        for cls in [WandbLogger, FileLogger]
+    },
 )

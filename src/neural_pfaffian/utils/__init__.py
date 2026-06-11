@@ -1,31 +1,56 @@
-from collections import defaultdict
 import logging
-from typing import Any, Callable, Generic, Self, Sequence, TypeVar
+from collections import defaultdict
+from collections.abc import Callable, Sequence
+from typing import Any, Generic, Self, TypeVar
 
+import jax
 import jax.numpy as jnp
-import jax.tree_util as jtu
 import numpy as np
 import numpy.typing as npt
 from flax.struct import PyTreeNode
 from jaxtyping import Array, ArrayLike, Float
 
-from .jax_utils import jit
+from .jax_utils import SerializeablePyTree, jit
 
 
 def unique[T](
     items: Sequence[T],
 ) -> tuple[tuple[T, ...], tuple[list[int], ...], np.ndarray, tuple[int, ...]]:
     """
-    Returns the unique items in a tuple and the indices of the first occurence of each item.
+    Identify unique items in a sequence, group their indices, and map each item to a group.
+
+    Args:
+        items (Sequence[T]): A sequence of items.
+
+    Returns:
+        tuple:
+            A 4-element tuple containing:
+
+            1. tuple[T, ...]:
+                All unique items in the order they appear in `items`.
+
+            2. tuple[list[int], ...]:
+                A tuple of lists, each list containing the indices at which a unique item appears.
+
+            3. np.ndarray:
+                An array of integer group labels, where each element indicates
+                the group index of the corresponding element in the original sequence.
+
+            4. tuple[int, ...]:
+                The first occurrence index of each unique item, in the same order
+                as the tuple of unique items.
     """
     unique = defaultdict(list)
     for i, x in enumerate(items):
         unique[x].append(i)
+    group_ids = np.empty(len(items), dtype=int)
+    for i, indices in enumerate(unique.values()):
+        group_ids[indices] = i
     return (
-        tuple(unique.keys()),
-        tuple(unique.values()),
-        np.concatenate(tuple(np.ones_like(c) * i for i, c in enumerate(unique.values()))),
-        tuple(x[0] for x in unique.values()),
+        tuple(unique.keys()),  # unique items
+        tuple(unique.values()),  # tuple of lists of indices
+        group_ids,
+        tuple(x[0] for x in unique.values()),  # first occurence of each item
     )
 
 
@@ -73,7 +98,7 @@ def adj_idx(
     assert np.allclose(a_sizes, b_sizes) or not drop_diagonal
     i, j, m = [], [], []
     off_a, off_b = 0, 0
-    for k, (a, b) in enumerate(zip(a_sizes, b_sizes)):
+    for k, (a, b) in enumerate(zip(a_sizes, b_sizes, strict=False)):
         adj = np.ones((a, b))
         if drop_off_block:
             adj = np.triu(adj)
@@ -95,19 +120,35 @@ def adj_idx(
 T = TypeVar('T')
 
 
-class EMA(Generic[T], PyTreeNode):
+class EMA(Generic[T], SerializeablePyTree):
     data: T
     weight: Float[Array, '']
+    """"The accumulated weight used for normalization, ensuring that the EMA is corrected
+    for the bias introduced by the initial state."""
 
     @classmethod
-    def init(cls, data: T) -> 'EMA[T]':
-        return cls(jtu.tree_map(jnp.zeros_like, data), jnp.zeros((), dtype=jnp.float32))
+    def init(cls, data: T, initial_bias_strength: float = 0.0) -> 'EMA[T]':
+        if initial_bias_strength > 0:
+            return cls(
+                jax.tree.map(lambda x: jnp.full_like(x, jnp.nan, x.dtype), data),
+                jnp.ones((), dtype=jnp.float32) * initial_bias_strength,
+            )
+        return cls(jax.tree.map(jnp.zeros_like, data), jnp.zeros((), dtype=jnp.float32))
 
     @jit
     def update(self, value: T, decay: ArrayLike) -> Self:
+        init_update = jax.tree.map(lambda x: jnp.isnan(x), self.data)
+
+        def _select_data(cond, data, value):
+            return jnp.where(cond, value * self.weight, data * decay + value)
+
         return self.replace(
-            data=jtu.tree_map(lambda a, b: a * decay + b, self.data, value),
-            weight=self.weight * decay + 1,
+            data=jax.tree.map(_select_data, init_update, self.data, value),
+            weight=jnp.where(
+                jax.tree.reduce(jnp.logical_and, jax.tree.map(jnp.all, init_update)),
+                self.weight,
+                self.weight * decay + 1,
+            ),
         )
 
     @jit
@@ -115,9 +156,37 @@ class EMA(Generic[T], PyTreeNode):
         if backup is None:
             backup = self.data
         is_nan = self.weight == 0
-        return jtu.tree_map(
-            lambda x, y: jnp.where(is_nan, y, x / self.weight), self.data, backup
+        return jax.tree.map(
+            lambda x, y: jnp.where(is_nan, y, x / self.weight),
+            self.data,
+            backup,
         )
+
+
+class RollingAverage(Generic[T], PyTreeNode):
+    data: T
+
+    @classmethod
+    def init(cls, data: T, window_size: int = 5_000) -> 'RollingAverage[T]':
+        return cls(
+            jax.tree.map(
+                lambda x: jnp.full((*x.shape, window_size), jnp.nan, x.dtype),
+                data,
+            ),
+        )
+
+    @jit
+    def update(self, value: T, *_) -> Self:
+        def _update_arr(val, arr):
+            return jnp.roll(arr, 1, axis=-1).at[..., 0].set(val)
+
+        return self.replace(
+            data=jax.tree.map(_update_arr, value, self.data),
+        )
+
+    @jit
+    def value(self) -> T:
+        return jax.tree.map(lambda x: jnp.nanmean(x, axis=-1), self.data)
 
 
 def batch[T](data: Sequence[T], n: int) -> list[Sequence[T]]:
@@ -157,17 +226,24 @@ class Modules[T](dict[str, type[T]]):
 
     def init(self, module: str, args: dict[str, dict[str, Any]], **kwargs) -> T:
         module = module.lower()
-        return self[module](**args[module], **kwargs)
+        try:
+            # Try a 'factory' initializer
+            return self[module].create(**args.get(module, {}), **kwargs)  # type: ignore
+        except AttributeError:
+            # Try a 'constructor' initializer
+            return self[module](**args.get(module, {}), **kwargs)
 
     def init_many(
-        self, modules: Sequence[tuple[str, dict[str, Any]]] | dict[str, dict[str, Any]]
+        self,
+        modules: Sequence[tuple[str, dict[str, Any]]] | dict[str, dict[str, Any]],
     ) -> tuple[T, ...]:
         if isinstance(modules, dict):
             return tuple(self[k.lower()](**kwargs) for k, kwargs in modules.items())
         return tuple(self[module.lower()](**args) for module, args in modules)
 
     def try_init_many(
-        self, modules: Sequence[tuple[str, dict[str, Any]]] | dict[str, dict[str, Any]]
+        self,
+        modules: Sequence[tuple[str, dict[str, Any]]] | dict[str, dict[str, Any]],
     ) -> tuple[T, ...]:
         result = []
         if isinstance(modules, dict):
@@ -175,11 +251,11 @@ class Modules[T](dict[str, type[T]]):
                 try:
                     result.append(self[k.lower()](**kwargs))
                 except Exception:
-                    logging.warn(f'Failed to initialize {k}')
+                    logging.warning(f'Failed to initialize {k}', exc_info=True)
             return tuple(result)
         for module, args in modules:
             try:
                 result.append(self[module.lower()](**args))
             except Exception:
-                logging.warn(f'Failed to initialize {module}')
+                logging.warning(f'Failed to initialize {module}', exc_info=True)
         return tuple(result)

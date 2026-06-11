@@ -1,9 +1,17 @@
 import jax
 import jax.numpy as jnp
 import numpy as np
+import pytest
 from fixtures import *  # noqa: F403
 from numpy.testing import assert_allclose
 from utils import assert_finite, assert_not_float64
+
+# Only use one_system and two_systems fixtures
+pytestmark = pytest.mark.parametrize(
+    'systems',
+    ['one_system', 'two_systems'],
+    indirect=True,
+)
 
 
 def test_fwd_and_bwd(embedding_fwdpass, embedding_params, systems):
@@ -30,8 +38,8 @@ def test_equivariance(embedding_fwdpass, embedding_params, systems):
     permutation = np.array([0, 1])
     permuted_system = systems.replace(
         electrons=systems.electrons.at[permutation].set(
-            systems.electrons[permutation[::-1]]
-        )
+            systems.electrons[permutation[::-1]],
+        ),
     )
     permuted_emb = embedding_fwdpass(embedding_params, permuted_system)
     permuted_emb = np.asarray(permuted_emb)

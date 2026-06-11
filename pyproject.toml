@@ -1,20 +1,29 @@
 [project]
 name = "neural_pfaffian"
 version = "0.0.1"
-authors = [{ name = "Nicholas Gao", email = "n.gao@tum.de" }]
+authors = [
+    { name = "Nicholas Gao", email = "n.gao@tum.de" },
+    { name = "Till Grutschus", email = "till.grutschus@fu-berlin.de" },
+]
 requires-python = ">= 3.12"
 dependencies = [
     "einops>=0.8.0",
     "flax>=0.9.0",
-    "folx>=0.2.15",
-    "jax==0.4.38",
+    "folx>=0.2.19",
+    "jax>=0.7,<0.8",
     "jaxtyping>=0.2.34",
     "numpy>=2.1.2",
     "optax>=0.2.4",
     "pyscf>=2.7.0",
-    "seml[ssh_forward]>=0.5.4",
+    "seml[ssh_forward]>=0.5.7",
+    "sacred>=0.8.7",
     "tqdm>=4.66.5",
     "wandb>=0.18.5",
+    "rich<14.1",
+    "networkx>=3.6.1",
+    "scikit-learn>=1.8.0",
+    "python-dotenv>=1.2.2",
+    "uncertainties>=3.2.3",
 ]
 license = { text = "MIT" }
 
@@ -43,24 +52,37 @@ line-ending = "lf"
 indent-style = "space"
 
 [tool.ruff.lint]
-ignore = ["F722", "E741"]
+ignore = ["F722", "E741", "B023", "B020", "RET504", "NPY002", "UP046", "COM812"]
+# TODO: B020 is actually useful, but I don't want to refactor right now
+extend-select = ["UP", "B", "C4", "COM", "RET", "SIM", "TC", "NPY", "RUF"]
 
 [tool.ruff.lint.per-file-ignores]
-"main.py" = ["F841"] # unused variables are allowed in main.py
+"main.py" = ["F841", "E402"]              # unused variables are allowed in main.py
+"*.ipynb" = ["F401", "F841", "E402", "B"] # ignore specific rules in ipynb files
 
 [tool.uv]
-required-version = ">=0.6.0"
-dev-dependencies = [
+default-groups = ["dev"]
+conflicts = [[{ group = "cuda12" }, { group = "cuda13" }]]
+
+[dependency-groups]
+dev = [
+    "jupyter>=1.1.1",
     "ipykernel>=6.29.5",
+    "ipympl>=0.9.4",
     "pre-commit>=4.0.1",
-    "pytest>=8.3.3",
     "pytest-env>=1.1.5",
     "pytest-xdist>=3.6.1",
+    "pytest>=8.3.3",
     "pytest-split>=0.10.0",
-    "ruff>=0.11.0",
-    "tensorboard>=2.19.0",
-    "tensorflow>=2.19.0rc0",
-    "tensorboard-plugin-profile>=2.19.0",
-    "jax[cuda12]; sys_platform == 'linux'",
-    "nvidia-cublas-cu12==12.6.1.4; sys_platform == 'linux'",
+    "pytest-regressions>=2.11.0",
+    "ruff>=0.14.6",
+    "xprof>=2.20.6",
+    "matplotlib>=3.10.1",
+    "pyright>=1.1.407",
 ]
+cuda13 = ["jax[cuda13]>=0.7,<0.8", "nvidia-cuda-cupti<14,!=13.2.*"]
+cuda12 = ["jax[cuda12]>=0.7,<0.8"]
+
+[tool.pyright]
+venvPath = "."
+venv = ".venv"

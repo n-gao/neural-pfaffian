@@ -54,6 +54,7 @@ class FullEnvelope(Envelope):
             systems.group(sigma, sigma_meta.param_type.value.chunk_fn),
             systems.group(systems.elec_nuc_dists, chunk_electron_nuclei),
             systems.unique_spins_and_charges,
+            strict=False,
         ):
             n_elec, n_nuc = sum(spins), len(charges)
             out_dim = self.out_dim * n_nuc if self.out_per_nuc else self.out_dim
@@ -101,6 +102,7 @@ class EfficientEnvelope(Envelope):
             systems.group(sigma, sigma_meta.param_type.value.chunk_fn),
             systems.group(systems.elec_nuc_dists, chunk_electron_nuclei),
             systems.unique_spins_and_charges,
+            strict=False,
         ):
             n_elec, n_nuc = sum(spins), len(charges)
             out_dim = self.out_dim * n_nuc if self.out_per_nuc else self.out_dim
@@ -121,5 +123,5 @@ ENVELOPES = Modules[Envelope](
     {
         envelope.__name__.lower().replace('envelope', ''): envelope
         for envelope in [FullEnvelope, EfficientEnvelope]
-    }
+    },
 )

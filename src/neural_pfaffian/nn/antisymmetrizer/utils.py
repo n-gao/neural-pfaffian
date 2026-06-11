@@ -22,7 +22,8 @@ def hf_to_full(
         [
             hf_up,
             jnp.zeros(
-                (*hf_up.shape[:-1], n_up_target + n_down_target - n_up), dtype=hf_up.dtype
+                (*hf_up.shape[:-1], n_up_target + n_down_target - n_up),
+                dtype=hf_up.dtype,
             ),
         ],
         axis=-1,

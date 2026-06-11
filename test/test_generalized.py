@@ -20,15 +20,17 @@ def test_fwd_and_bwd(generalized_wf, generalized_wf_params, two_systems):
     emb_sum, grad = fwd_sum(generalized_wf_params, two_systems)
     assert isinstance(emb_sum, jax.Array)
     assert jax.numpy.isfinite(emb_sum).all()
-    assert_shape_and_dtype(generalized_wf_params, grad)
     assert_finite(grad)
+    assert_shape_and_dtype(generalized_wf_params, grad)
 
 
 def test_independence_embedding(generalized_wf, generalized_wf_params, two_systems):
     systems_float64 = jax.tree.map(lambda x: x.astype(jnp.float64), two_systems)
     targets = generalized_wf.embedding(generalized_wf_params, systems_float64)
     for s, target in zip(
-        systems_float64, jnp.split(targets, np.cumsum(systems_float64.n_elec_by_mol))
+        systems_float64,
+        jnp.split(targets, np.cumsum(systems_float64.n_elec_by_mol)),
+        strict=False,
     ):
         indep = generalized_wf.embedding(generalized_wf_params, s)
         assert_allclose(indep, target, atol=2e-6)
@@ -37,7 +39,7 @@ def test_independence_embedding(generalized_wf, generalized_wf_params, two_syste
 def test_independence_logpsi(generalized_wf, generalized_wf_params, two_systems):
     systems_float64 = jax.tree.map(lambda x: x.astype(jnp.float64), two_systems)
     targets = generalized_wf.apply(generalized_wf_params, systems_float64)
-    for s, target in zip(systems_float64, targets):
+    for s, target in zip(systems_float64, targets, strict=False):
         indep = generalized_wf.apply(generalized_wf_params, s)
         # This test is very sensitive
         assert_allclose(indep, target, atol=1e-4)
@@ -47,14 +49,16 @@ def test_fixed_structure(generalized_wf, generalized_wf_params, one_system, two_
     params = generalized_wf_params
     fixed = generalized_wf.fix_structure(generalized_wf_params, two_systems)
     assert_allclose(
-        fixed.apply(params, two_systems), generalized_wf.apply(params, two_systems)
+        fixed.apply(params, two_systems),
+        generalized_wf.apply(params, two_systems),
     )
     with pytest.raises(ValueError):
         fixed.apply(params, one_system)
 
     fixed = generalized_wf.fix_structure(generalized_wf_params, one_system)
     assert_allclose(
-        fixed.apply(params, one_system), generalized_wf.apply(params, one_system)
+        fixed.apply(params, one_system),
+        generalized_wf.apply(params, one_system),
     )
     with pytest.raises(ValueError):
         fixed.apply(params, two_systems)

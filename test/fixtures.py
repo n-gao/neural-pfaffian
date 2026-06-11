@@ -1,4 +1,3 @@
-import gc
 import flax.linen as nn
 import jax
 import jax.numpy as jnp
@@ -7,65 +6,208 @@ import pytest
 
 from neural_pfaffian.clipping import MedianClipping
 from neural_pfaffian.mcmc import MetropolisHastings
-from neural_pfaffian.nn.antisymmetrizer.slater import RestrictedSlater
-from neural_pfaffian.nn.embedding import FermiNet, PsiFormer, Moon
 from neural_pfaffian.nn.antisymmetrizer import Pfaffian, Slater
+from neural_pfaffian.nn.embedding import FermiNet, Moon, PsiFormer
 from neural_pfaffian.nn.embedding.psiformer import AttentionImplementation
 from neural_pfaffian.nn.envelope import EfficientEnvelope, FullEnvelope
 from neural_pfaffian.nn.jastrow import CuspJastrow, MLPJastrow
 from neural_pfaffian.nn.meta_network import MetaGNN
 from neural_pfaffian.nn.module import ParamMeta, ParamTypes
-from neural_pfaffian.nn.wave_function import GeneralizedWaveFunction, WaveFunction
+from neural_pfaffian.nn.wave_function import (
+    GeneralizedWaveFunction,
+    WaveFunction,
+)
 from neural_pfaffian.preconditioner import CG, Identity, Preconditioner, Spring
-from neural_pfaffian.pretraining import Pretraining, PretrainingDistribution
-from neural_pfaffian.systems import Systems
+from neural_pfaffian.pretraining import Pretraining
+from neural_pfaffian.sample_reweighting import LOG_NORMALIZER_CONSTANTS_KEY
+from neural_pfaffian.systems import PseudopotentialProperties, Systems
 from neural_pfaffian.vmc import VMC
 
-
-@pytest.fixture(autouse=True, scope='module')
-def clear_cache():
-    # Ensure that before and after every module we clear JAX's caches
-    jax.clear_caches()
-    gc.collect()
-    yield
-    jax.clear_caches()
-    gc.collect()
+# ---------------------------------------------------------------------------
+# Plain helper functions (importable by test files)
+# ---------------------------------------------------------------------------
 
 
-@pytest.fixture
-def clear_cache_each_time():
-    # Ensure that before and after every module we clear JAX's caches
-    jax.clear_caches()
-    gc.collect()
-    yield
-    jax.clear_caches()
-    gc.collect()
+def _systems_with_default_pp(
+    *,
+    spins,
+    charges,
+    electrons,
+    nuclei,
+    mol_data,
+    mol_ids,
+    excitations,
+):
+    return Systems(
+        spins=spins,
+        charges=charges,
+        electrons=electrons,
+        nuclei=nuclei,
+        mol_data=mol_data,
+        mol_ids=mol_ids,
+        excitations=excitations,
+        effective_charges=charges,
+        pp_data=tuple(
+            PseudopotentialProperties.create_empty(len(c), electrons.dtype)
+            for c in charges
+        ),
+    )
 
 
+_ORBS_PER_CHARGE = {
+    '1': 2,
+    '2': 2,
+    '3': 5,
+    '4': 5,
+    '5': 5,
+    '6': 5,
+    '7': 5,
+    '8': 5,
+    '9': 5,
+    '10': 5,
+}
+
+
+# ---------------------------------------------------------------------------
 # Systems
+# ---------------------------------------------------------------------------
+
+
 @pytest.fixture(scope='session')
 def one_system():
-    return Systems(
+    charges = ((3,),)
+    electrons = jax.random.normal(jax.random.key(0), (3, 3), dtype=jnp.float32)
+    return _systems_with_default_pp(
         spins=((2, 1),),
-        charges=((3,),),
-        electrons=jax.random.normal(jax.random.key(0), (3, 3), dtype=jnp.float32),
+        charges=charges,
+        electrons=electrons,
         nuclei=jax.random.normal(jax.random.key(1), (1, 3), dtype=jnp.float32),
         mol_data={},
+        mol_ids=(0,),
+        excitations=(0,),
     )
 
 
 @pytest.fixture(scope='session')
 def two_systems():
-    return Systems(
+    charges = ((4,), (4, 2))
+    electrons = jax.random.normal(jax.random.key(0), (10, 3), dtype=jnp.float32)
+    return _systems_with_default_pp(
         spins=((2, 2), (3, 3)),
-        charges=((4,), (4, 2)),
-        electrons=jax.random.normal(jax.random.key(0), (10, 3), dtype=jnp.float32),
+        charges=charges,
+        electrons=electrons,
         nuclei=jax.random.normal(jax.random.key(1), (3, 3), dtype=jnp.float32),
         mol_data={},
+        mol_ids=(0, 1),
+        excitations=(0, 0),
     )
 
 
-@pytest.fixture(scope='session', params=['one_system', 'two_systems'])
+@pytest.fixture(scope='session')
+def excited_systems():
+    charges = ((2, 2), (2, 2))
+    electrons = jnp.concatenate(
+        [jax.random.normal(jax.random.key(0), (4, 3), dtype=jnp.float32)] * 2,
+        axis=0,
+    )
+    systems = _systems_with_default_pp(
+        spins=((2, 2), (2, 2)),
+        charges=charges,
+        electrons=electrons,
+        nuclei=jnp.concatenate(
+            [jax.random.normal(jax.random.key(1), (2, 3), dtype=jnp.float32)] * 2,
+            axis=0,
+        ),
+        mol_data={},
+        mol_ids=(0, 0),
+        excitations=(0, 1),
+    )
+    return systems.set_mol_data(
+        LOG_NORMALIZER_CONSTANTS_KEY,
+        jnp.zeros((systems.n_mols,), dtype=jnp.float64),
+    )
+
+
+@pytest.fixture(scope='session')
+def batched_excited_systems(excited_systems):
+    electrons = excited_systems.electrons
+    batched_electrons = jnp.stack(
+        [electrons, electrons + jnp.array(0.05, dtype=jnp.float32)],
+    )
+    return excited_systems.replace(electrons=batched_electrons)
+
+
+@pytest.fixture(scope='session')
+def two_excited_systems():
+    charges = ((2, 2), (2, 2), (2, 2, 1), (2, 2, 1))
+    electrons = jax.random.normal(jax.random.key(0), (18, 3), dtype=jnp.float32)
+    systems = _systems_with_default_pp(
+        spins=((2, 2), (2, 2), (2, 3), (2, 3)),
+        charges=charges,
+        electrons=electrons,
+        nuclei=jax.random.normal(jax.random.key(1), (10, 3), dtype=jnp.float32),
+        mol_data={},
+        mol_ids=(0, 0, 1, 1),
+        excitations=(0, 1, 0, 1),
+    )
+    return systems.set_mol_data(
+        LOG_NORMALIZER_CONSTANTS_KEY,
+        jnp.zeros((systems.n_mols,), dtype=jnp.float64),
+    )
+
+
+@pytest.fixture(scope='session')
+def three_state_system():
+    charges = ((2, 2),) * 3
+    electrons = jnp.concatenate(
+        [jax.random.normal(jax.random.key(2), (4, 3), dtype=jnp.float32)] * 3,
+        axis=0,
+    )
+    return _systems_with_default_pp(
+        spins=((2, 2),) * 3,
+        charges=charges,
+        electrons=electrons,
+        nuclei=jnp.concatenate(
+            [jax.random.normal(jax.random.key(3), (2, 3), dtype=jnp.float32)] * 3,
+            axis=0,
+        ),
+        mol_data={},
+        mol_ids=(0, 0, 0),
+        excitations=(0, 1, 2),
+    )
+
+
+@pytest.fixture(scope='session')
+def li_all_electron_system():
+    return Systems.create(
+        (2, 1),
+        (3,),
+        jnp.array([[0.0, 0.0, 0.0]], dtype=jnp.float32),
+    ).replace(
+        electrons=jnp.array(
+            [[0.2, 0.0, 0.0], [0.0, 0.3, 0.0], [0.0, 0.0, 0.4]],
+            dtype=jnp.float32,
+        ),
+    )
+
+
+@pytest.fixture(scope='session')
+def li_pseudopotential_system():
+    from neural_pfaffian.pseudopotential import attach_pseudopotentials
+
+    systems = Systems.create(
+        (2, 1),
+        (3,),
+        jnp.array([[0.0, 0.0, 0.0]], dtype=jnp.float32),
+    )
+    systems = attach_pseudopotentials(systems, enable=True, ecp='ccecp', symbols=['Li'])
+    return systems.replace(electrons=jnp.array([[0.2, 0.0, 0.0]], dtype=jnp.float32))
+
+
+@pytest.fixture(
+    scope='session',
+    params=['one_system', 'two_systems', 'excited_systems', 'two_excited_systems'],
+)
 def systems(request):
     return request.getfixturevalue(request.param)
 
@@ -77,7 +219,7 @@ def batched_systems(systems):
             jax.random.key(0),
             (2 * jax.device_count(), *systems.electrons.shape),
             dtype=systems.electrons.dtype,
-        )
+        ),
     )
 
 
@@ -119,7 +261,7 @@ def psiformer_parallel():
         n_head=2,
         n_layer=1,
         activation=jnp.tanh,
-        attention_implementation=AttentionImplementation.ITERATIVE,
+        attention_implementation=AttentionImplementation.PARALLEL,
     )
 
 
@@ -155,7 +297,7 @@ def embedding_fwdpass(embedding_model: nn.Module):
     return jax.jit(embedding_model.apply)
 
 
-# Enveloeps
+# Envelopes
 @pytest.fixture(scope='module')
 def full_envelope():
     return FullEnvelope()
@@ -174,16 +316,7 @@ def envelope(request):
 # Antisymmetrizer
 @pytest.fixture(scope='module')
 def pfaffian(envelope):
-    return Pfaffian(
-        2,
-        {'1': 2, '2': 2, '3': 5, '4': 5, '5': 5, '6': 5, '7': 5, '8': 5, '9': 5, '10': 5},
-        envelope,
-        2,
-        0.1,
-        1.0,
-        1.0,
-        0.99,
-    )
+    return Pfaffian(2, _ORBS_PER_CHARGE, envelope, 1.0, 1.0, 0.0)
 
 
 @pytest.fixture(scope='module')
@@ -191,14 +324,9 @@ def slater(envelope):
     return Slater(2, envelope)
 
 
-@pytest.fixture(scope='module')
-def restricted_slater(envelope):
-    return RestrictedSlater(2, envelope)
-
-
-@pytest.fixture(scope='module', params=['pfaffian', 'slater', 'restricted_slater'])
+@pytest.fixture(scope='module', params=['pfaffian', 'slater'])
 def antisymmetrizer(request, envelope):
-    # envelope must be here since the antisymmetrizer depend on it
+    # envelope must be here since orbitals depend on it
     return request.getfixturevalue(request.param)
 
 
@@ -206,13 +334,11 @@ def antisymmetrizer(request, envelope):
 def singular_pfaffian(efficient_envelope):
     return Pfaffian(
         2,
-        {'1': 2, '2': 2, '3': 5, '4': 5, '5': 5, '6': 5, '7': 5, '8': 5, '9': 5, '10': 5},
+        _ORBS_PER_CHARGE,
         efficient_envelope,
-        2,
-        0.1,
         1.0,
         1.0,
-        0.99,
+        0.0,
     )
 
 
@@ -221,14 +347,12 @@ def singular_slater(efficient_envelope):
     return Slater(2, efficient_envelope)
 
 
-@pytest.fixture(scope='module')
-def singular_restricted_slater(efficient_envelope):
-    return RestrictedSlater(2, efficient_envelope)
-
-
 @pytest.fixture(
     scope='module',
-    params=['singular_pfaffian', 'singular_slater', 'singular_restricted_slater'],
+    params=[
+        'singular_pfaffian',
+        'singular_slater',
+    ],
 )
 def singular_antisymmetrizer(request, efficient_envelope):
     # envelope must be here since orbitals depend on it
@@ -257,7 +381,8 @@ def double_jastrow(mlp_jastrow, cusp_jastrow):
 
 # Jastrows
 @pytest.fixture(
-    scope='module', params=['no_jastrow', 'mlp_jastrow', 'cusp_jastrow', 'double_jastrow']
+    scope='module',
+    params=['no_jastrow', 'mlp_jastrow', 'cusp_jastrow', 'double_jastrow'],
 )
 def jastrow_models(request):
     return request.getfixturevalue(request.param)
@@ -265,17 +390,17 @@ def jastrow_models(request):
 
 # Wave Function
 @pytest.fixture(scope='module')
-def wave_function(moon, antisymmetrizer, jastrow_models):
-    wf = WaveFunction(moon, antisymmetrizer, jastrow_models)
+def wave_function(embedding_model, antisymmetrizer, jastrow_models, systems):
+    if isinstance(antisymmetrizer, Slater) and systems.max_num_states > 1:
+        pytest.skip('Slater determinants do not support excitation')
+    wf = WaveFunction(embedding_model, antisymmetrizer, jastrow_models)
+    wf.antisymmetrizer.max_num_states = systems.max_num_states
     return wf
 
 
 @pytest.fixture(scope='module')
 def wf_params(wave_function: WaveFunction, systems: Systems):
-    if (
-        isinstance(wave_function.antisymmetrizer, (Slater, RestrictedSlater))
-        and systems.n_mols > 1
-    ):
+    if isinstance(wave_function.antisymmetrizer, Slater) and len(set(systems.spins)) > 1:
         pytest.skip('Slater requires identical spins for all molecules')
     return wave_function.init(jax.random.key(42), systems)
 
@@ -312,7 +437,7 @@ def global_meta():
         mean=0,
         std=1,
         bias=True,
-        chunk_axis=None,
+        param_sharing_axis=None,
         keep_distr=False,
     )
 
@@ -325,7 +450,7 @@ def nuclei_meta():
         mean=0,
         std=1,
         bias=True,
-        chunk_axis=None,
+        param_sharing_axis=None,
         keep_distr=False,
     )
 
@@ -338,56 +463,66 @@ def nuclei_nuclei_meta():
         mean=0,
         std=1,
         bias=False,
-        chunk_axis=None,
+        param_sharing_axis=None,
         keep_distr=False,
     )
 
 
 @pytest.fixture(scope='module')
-def chunked_meta():
+def param_sharing_meta():
     return ParamMeta(
         param_type=ParamTypes.NUCLEI,
         shape_and_dtype=jax.ShapeDtypeStruct((3, 6), jnp.float32),
         mean=0,
         std=1,
         bias=True,
-        chunk_axis=0,
+        param_sharing_axis=0,
         keep_distr=False,
     )
 
 
 @pytest.fixture(
     scope='module',
-    params=['global_meta', 'nuclei_meta', 'nuclei_nuclei_meta', 'chunked_meta'],
+    params=['global_meta', 'nuclei_meta', 'nuclei_nuclei_meta', 'param_sharing_meta'],
 )
 def out_meta(request):
     return request.getfixturevalue(request.param)
 
 
-# Generalized Wave fucntion
+# Generalized Wave function
 @pytest.fixture(scope='module')
-def generalized_wf(moon, pfaffian, double_jastrow, meta_gnn, one_system):
+def generalized_wf(moon, pfaffian, double_jastrow, meta_gnn, excited_systems):
     return GeneralizedWaveFunction.create(
-        WaveFunction(moon, pfaffian, double_jastrow), meta_gnn, one_system
+        WaveFunction(moon, pfaffian, double_jastrow),
+        meta_gnn,
+        excited_systems,
     )
 
 
 @pytest.fixture(scope='module')
-def generalized_wf_params(generalized_wf: GeneralizedWaveFunction, one_system: Systems):
-    return generalized_wf.init(jax.random.key(42), one_system)
+def generalized_wf_params(
+    generalized_wf: GeneralizedWaveFunction,
+    excited_systems: Systems,
+):
+    return generalized_wf.init(jax.random.key(42), excited_systems)
 
 
 # Example WF
 @pytest.fixture(scope='session')
-def neural_pfaffian(singular_pfaffian, moon, double_jastrow, meta_gnn, one_system):
+def neural_pfaffian(singular_pfaffian, moon, double_jastrow, meta_gnn, excited_systems):
     return GeneralizedWaveFunction.create(
-        WaveFunction(moon, singular_pfaffian, double_jastrow), meta_gnn, one_system
+        WaveFunction(moon, singular_pfaffian, double_jastrow),
+        meta_gnn,
+        excited_systems,
     )
 
 
-@pytest.fixture(scope='session')
-def neural_pfaffian_params(neural_pfaffian: GeneralizedWaveFunction, one_system: Systems):
-    return neural_pfaffian.init(jax.random.key(42), one_system)
+@pytest.fixture(scope='module')
+def neural_pfaffian_params(
+    neural_pfaffian: GeneralizedWaveFunction,
+    excited_systems: Systems,
+):
+    return neural_pfaffian.init(jax.random.key(42), excited_systems)
 
 
 @pytest.fixture(scope='module')
@@ -397,7 +532,7 @@ def identity_preconditioner(neural_pfaffian: GeneralizedWaveFunction):
 
 @pytest.fixture(scope='module')
 def spring_preconditioner(neural_pfaffian: GeneralizedWaveFunction):
-    return Spring(neural_pfaffian, 1e-3, 0.99, jnp.float64)
+    return Spring(neural_pfaffian, 1e-3, 0.99, 0.0, 0.0, 1e-3, jnp.float64, 1e-6)
 
 
 @pytest.fixture(scope='module')
@@ -426,7 +561,15 @@ def block_mcmc(neural_pfaffian: GeneralizedWaveFunction):
 @pytest.fixture(scope='module')
 def nonlocal_mcmc(neural_pfaffian: GeneralizedWaveFunction):
     return MetropolisHastings(
-        neural_pfaffian, 1, jnp.array(0.01), 2, 0.5, 0.025, 1, 10, 2.0
+        neural_pfaffian,
+        1,
+        jnp.array(0.01),
+        2,
+        0.5,
+        0.025,
+        1,
+        10,
+        2.0,
     )
 
 
@@ -463,11 +606,11 @@ def vmc_systems(vmc: VMC, batched_systems: Systems):
 
 @pytest.fixture(scope='module')
 def pretrain_wf(singular_antisymmetrizer, moon, double_jastrow, meta_gnn, systems):
-    if (
-        isinstance(singular_antisymmetrizer, (Slater, RestrictedSlater))
-        and systems.n_mols > 1
-    ):
-        pytest.skip('Slater requires identical spins for all molecules')
+    if isinstance(singular_antisymmetrizer, Slater):
+        if len(set(systems.spins)) > 1:
+            pytest.skip('Slater requires identical spins for all molecules')
+        if systems.max_num_states > 1:
+            pytest.skip('Slater determinants do not support excitation')
     return GeneralizedWaveFunction.create(
         WaveFunction(moon, singular_antisymmetrizer, double_jastrow),
         meta_gnn,
@@ -492,28 +635,14 @@ def pretrain_vmc_state(pretrain_vmc: VMC, systems):
 
 
 @pytest.fixture(scope='module')
-def wf_pretrainer(pretrain_vmc, optimizer):
-    return Pretraining(
-        pretrain_vmc, optimizer, 1e-6, sample_from=PretrainingDistribution.WAVE_FUNCTION
-    )
-
-
-@pytest.fixture(scope='module')
-def hf_pretrainer(pretrain_vmc, optimizer):
-    return Pretraining(
-        pretrain_vmc, optimizer, 1e-6, sample_from=PretrainingDistribution.HF
-    )
-
-
-@pytest.fixture(scope='module', params=['wf_pretrainer', 'hf_pretrainer'])
-def pretrainer(request, singular_antisymmetrizer, systems):
-    # The pretrainer depends on the antisymmetrizer and the systems thus they must be here
-    return request.getfixturevalue(request.param)
+def pretrainer(pretrain_vmc, optimizer):
+    pretrainer = Pretraining(pretrain_vmc, optimizer, 1e-6)
+    return pretrainer
 
 
 @pytest.fixture(scope='module')
 def systems_with_hf(batched_systems):
-    return batched_systems.with_hf('sto-6g')
+    return batched_systems.with_hf('aug-cc-pVDZ')
 
 
 @pytest.fixture(scope='module')
@@ -524,3 +653,11 @@ def pretrainer_state(pretrainer, pretrain_vmc_state):
 @pytest.fixture(scope='module')
 def pretraining_systems(pretrainer, systems_with_hf):
     return pretrainer.init_systems(jax.random.key(8), systems_with_hf)
+
+
+# -- Full neural pfaffian setup (used by test_regression_excited_states) --
+
+
+@pytest.fixture(scope='module')
+def regression_wf_params(regression_wf, regression_systems):
+    return regression_wf.init(jax.random.key(42), regression_systems.example_input)

@@ -1,5 +1,3 @@
-from typing import Type
-
 import flax.linen as nn
 import jax
 import jax.numpy as jnp
@@ -66,7 +64,7 @@ class BesselRbf(Rbf):
                 (self.out_dim,),
                 self.max_charge,
                 center_idx,
-            )
+            ),
         )
         frequencies = jnp.arange(1, self.out_dim + 1) * jnp.pi
 
@@ -82,7 +80,7 @@ class EdgeEmbedding(ReparamModule):
     hidden_dim: int
     n_rbf: int
     activation: ActivationOrName
-    rbf: Type[Rbf]
+    rbf: type[Rbf]
     # If set, we use charge embeddings instead of .reparam
     # If set to -1, we use the same embedding for all nuclei
     max_charge: int | None
@@ -116,10 +114,13 @@ class EdgeEmbedding(ReparamModule):
         hidden = jnp.einsum('...d,...dk->...k', edges, kernel) + bias
         hidden = Activation(self.activation)(hidden)
         env = self.rbf(self.n_rbf, self.max_charge, self.sigma_init)(
-            systems, edges, center_idx
+            systems,
+            edges,
+            center_idx,
         )
         hidden = (hidden[..., None] * env[..., None, :]).reshape(
-            *hidden.shape[:-1], self.hidden_dim * self.n_rbf
+            *hidden.shape[:-1],
+            self.hidden_dim * self.n_rbf,
         )
         return nn.Dense(self.out_dim, use_bias=False)(hidden) / jnp.sqrt(self.n_rbf)
 
@@ -137,5 +138,7 @@ class NormEnvelope(ReparamModule):
         center_idx: npt.NDArray[np.int64] | None = None,
     ):
         return ExponentialRbf(1, self.max_charge, self.sigma_init)(
-            systems, edges, center_idx
+            systems,
+            edges,
+            center_idx,
         ).squeeze(-1)

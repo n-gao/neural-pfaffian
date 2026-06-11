@@ -235,7 +235,31 @@ fabric.properties
 
 scratch/
 wandb/
-.vscode/
+.vscode/**
+config/debug.yaml
+config/debug_*.yaml
+config/debug/**
+debug/pretraining_targets/*
+debug/trace/**
+checkpoints/**
+checkpoints
+debug
+wandb_archive
+slurm-*.out
+
+# Profiling outputs (keep out of VCS)
+**/profiles/**
+**/plugins/profile/**
+*.xplane.pb
+*.trace.json
+*.trace.json.gz
+
+# Always ignore local playground notebook
+playground.ipynb
 
 run/
 runs/
+
+# AI Stuff
+.claude
+.codex

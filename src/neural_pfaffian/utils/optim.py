@@ -1,8 +1,8 @@
-from typing import Any, Callable, Sequence, cast
+from collections.abc import Callable, Sequence
+from typing import Any, cast
 
 import jax
 import jax.numpy as jnp
-import jax.tree_util as jtu
 import optax
 from jaxtyping import Array, Float
 
@@ -12,8 +12,16 @@ Transform = str | dict[str, Any] | tuple[str, *Sequence[Any]]
 TransformationConfig = Sequence[Transform]
 
 
-def scale_by_hyperbolic_schedule(learning_rate: float, delay: float):
-    return optax.scale_by_schedule(lambda x: -learning_rate / (1 + x / delay))
+def scale_by_hyperbolic_schedule(
+    learning_rate: float,
+    delay: float,
+    decay: float = 1.0,
+    offset: float = 0.0,
+):
+    return optax.scale_by_schedule(
+        lambda step: -learning_rate
+        / (1 + jnp.maximum(0, (step - offset)) / delay) ** decay,
+    )
 
 
 def scale_by_trust_ratio_embeddings(
@@ -43,12 +51,14 @@ def scale_by_trust_ratio_embeddings(
             # Set trust_ratio to 1 in case where parameters would never be updated.
             zero_norm = jnp.logical_or(param_norm == 0.0, update_norm == 0.0)
             safe_trust_ratio = jnp.where(
-                zero_norm, jnp.array(1.0, dtype=param.dtype), trust_ratio
+                zero_norm,
+                jnp.array(1.0, dtype=param.dtype),
+                trust_ratio,
             )
 
             return update * safe_trust_ratio
 
-        updates = jtu.tree_map(_scale_update, updates, params)
+        updates = jax.tree.map(_scale_update, updates, params)
         return updates, state
 
     return optax.GradientTransformation(init_fn, update_fn)  # type: ignore
@@ -81,18 +91,17 @@ def get_transformations(
 
 
 def filter_by_param(name: str | Sequence[str], transformations: TransformationConfig):
-    if isinstance(name, str):
-        name = [name]
+    names = [name] if isinstance(name, str) else list(name)
 
     def mask(params):
         def _mask(path, tensor):
             try:
                 tensor_name = getattr(path[-1], 'name', getattr(path[-1], 'key', ''))
-                return any(n in tensor_name for n in name)
+                return any(n in tensor_name for n in names)
             except Exception:
                 return False
 
-        return jtu.tree_map_with_path(_mask, params)
+        return jax.tree.map_with_path(_mask, params)
 
     return optax.masked(optax.chain(*get_transformations(transformations)), mask)
 
@@ -117,7 +126,7 @@ def optimize[T](
         params, opt_state = state
         value, grads = avg_loss_and_grad(params)
         updates, opt_state = optimizer.update(grads, opt_state, params)  # type: ignore
-        params = cast(T, optax.apply_updates(params, updates))  # type: ignore
+        params = cast('T', optax.apply_updates(params, updates))  # type: ignore
         return (params, opt_state), value
 
     (x, _), loss = jax.lax.scan(

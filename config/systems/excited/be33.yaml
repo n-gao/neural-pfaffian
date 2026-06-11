@@ -1,0 +1,24 @@
+systems:
+  molecules:
+    - - "excited"
+      - total_spins: 0
+        n_states: 33
+        molecules:
+          - ["atomic", { charge: 4 }]
+  num_walker_per_mol: 124
+  init_electron_width: 3.0
+
+vmc:
+  spin_penalty:
+    enabled: True
+    penalty_type: snap
+    penalty_scale:
+      schedule: sigmoid
+      init_value: 0.0
+      end_value: 0.1
+      midpoint_step: 100_000
+      transition_steps: 10_000
+
+pretraining:
+  basis: aug-cc-pVTZ
+  inactive_orbital_truncation: 4

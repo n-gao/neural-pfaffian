@@ -1,0 +1,44 @@
+systems:
+  molecules:
+    - - "excited"
+      - total_spins: 0
+        n_states: 6
+        molecules:
+          - ["diatomic", { charge1: 6, charge2: 6, distance: 1.8807 }]
+          - ["diatomic", { charge1: 6, charge2: 6, distance: 2.1172 }]
+          - ["diatomic", { charge1: 6, charge2: 6, distance: 2.2342 }]
+          - ["diatomic", { charge1: 6, charge2: 6, distance: 2.3491 }]
+          - ["diatomic", { charge1: 6, charge2: 6, distance: 2.4688 }]
+          - ["diatomic", { charge1: 6, charge2: 6, distance: 2.5860 }]
+          - ["diatomic", { charge1: 6, charge2: 6, distance: 2.8220 }]
+          - ["diatomic", { charge1: 6, charge2: 6, distance: 3.0547 }]
+          - ["diatomic", { charge1: 6, charge2: 6, distance: 3.2937 }]
+          - ["diatomic", { charge1: 6, charge2: 6, distance: 3.5245 }]
+    - - "excited"
+      - total_spins: 2
+        n_states: 6
+        molecules:
+          - ["diatomic", { charge1: 6, charge2: 6, distance: 1.8807 }]
+          - ["diatomic", { charge1: 6, charge2: 6, distance: 2.1172 }]
+          - ["diatomic", { charge1: 6, charge2: 6, distance: 2.2342 }]
+          - ["diatomic", { charge1: 6, charge2: 6, distance: 2.3491 }]
+          - ["diatomic", { charge1: 6, charge2: 6, distance: 2.4688 }]
+          - ["diatomic", { charge1: 6, charge2: 6, distance: 2.5860 }]
+          - ["diatomic", { charge1: 6, charge2: 6, distance: 2.8220 }]
+          - ["diatomic", { charge1: 6, charge2: 6, distance: 3.0547 }]
+          - ["diatomic", { charge1: 6, charge2: 6, distance: 3.2937 }]
+          - ["diatomic", { charge1: 6, charge2: 6, distance: 3.5245 }]
+  num_walker_per_mol: 36
+  init_electron_width: 3.0
+
+vmc:
+  epochs: 200_000
+  spin_penalty:
+    enabled: True
+    penalty_type: minimize
+    penalty_scale: 8.0
+
+pretraining:
+  epochs: 2000
+  hf_config:
+    minimal_spin_only: True

@@ -1,18 +1,14 @@
-from typing import Sequence
-
 import einops
 import flax.linen as nn
 import jax
 import jax.numpy as jnp
-import jax.tree_util as jtu
 from flax.struct import PyTreeNode
 from jaxtyping import Array, Float
 
-from neural_pfaffian.hf import HFOrbitals
 from neural_pfaffian.nn.envelope import Envelope
 from neural_pfaffian.nn.module import ReparamModule
-from neural_pfaffian.nn.wave_function import AntisymmetrizerP
-from neural_pfaffian.systems import Systems, SystemsWithHF
+from neural_pfaffian.nn.wave_function import AntisymmetrizerP, AuxData, Loss
+from neural_pfaffian.systems import Systems, SystemsWithPretrainTarget
 
 from .utils import hf_to_full
 
@@ -32,7 +28,8 @@ class FixedOrbitals(ReparamModule):
         )
         # Set envelope output correctly
         env = self.envelope.copy(
-            out_dim=self.num_orbitals * self.determinants, out_per_nuc=False
+            out_dim=self.num_orbitals * self.determinants,
+            out_per_nuc=False,
         )(systems)
         assert len(env) == 1
         env = env[0][systems.inverse_unique_indices]  # original order
@@ -45,12 +42,28 @@ class SlaterOrbitals(PyTreeNode):
     orbitals: Float[Array, 'n_mols n_det n_elec n_elec']
 
 
-class Slater(ReparamModule, AntisymmetrizerP[SlaterOrbitals, None]):
+class Slater(
+    ReparamModule,
+    AntisymmetrizerP[SlaterOrbitals, Float[Array, 'electrons dim'], None],
+):
     determinants: int
     envelope: Envelope
 
+    max_num_states: int | None = None
+
     @nn.compact
-    def __call__(self, systems: Systems, elec_embeddings: Float[Array, 'electrons dim']):
+    def __call__(
+        self,
+        systems: Systems,
+        elec_embeddings: Float[Array, 'electrons dim'],
+    ):
+        assert self.max_num_states is not None and self.max_num_states > 0, (
+            'max_num_states must be set'
+        )
+        if self.max_num_states > 1:
+            raise NotImplementedError(
+                'Slater does not support excited states computation',
+            )
         assert systems.spins_are_identical, (
             'Slater requires identical spins for all molecules'
         )
@@ -84,6 +97,13 @@ class Slater(ReparamModule, AntisymmetrizerP[SlaterOrbitals, None]):
         )
         return SlaterOrbitals(jnp.concatenate([up, down], axis=-2))
 
+    def core_orbitals(self, systems, elec_embeddings):
+        # In Slater the orbitals have to recomputed at the moment
+        return elec_embeddings
+
+    def apply_excitation(self, systems, core_orbitals):
+        return self.__call__(systems, core_orbitals)
+
     def to_slog_psi(self, systems: Systems, orbitals: SlaterOrbitals):
         @jax.vmap  # vmap mols
         def _to_slog_psi(orbitals: SlaterOrbitals):
@@ -95,33 +115,47 @@ class Slater(ReparamModule, AntisymmetrizerP[SlaterOrbitals, None]):
 
     def match_hf_orbitals(
         self,
-        systems: Systems,
-        hf_orbitals: Sequence[HFOrbitals],  # list of molecules
+        systems: SystemsWithPretrainTarget,
         orbitals: SlaterOrbitals,  # grouped by molecules
-        state: Sequence[None],  # list of molecules
-    ):
-        hf_up, hf_down = jtu.tree_map(lambda *x: jnp.stack(x, axis=1), *hf_orbitals)
+    ) -> tuple[Loss, list[None], AuxData]:
+        hf_orbitals = systems.hf_orbitals
+        hf_up, hf_down = jax.tree.map(lambda *x: jnp.stack(x, axis=1), *hf_orbitals)
         hf_full = hf_to_full(hf_up, hf_down)[..., None, :, :]
-        return ((orbitals.orbitals - hf_full) ** 2).mean(), tuple(state)
+        return ((orbitals.orbitals - hf_full) ** 2).mean(), list(systems.cache), {}
 
-    def init_systems(self, key: Array, systems: SystemsWithHF):
+    def init_systems(self, key: Array, systems: SystemsWithPretrainTarget):
         return systems.replace(cache=tuple([None] * systems.n_mols))
 
 
 class RestrictedSlater(Slater):
     @nn.compact
-    def __call__(self, systems: Systems, elec_embeddings: Float[Array, 'electrons dim']):
+    def __call__(
+        self,
+        systems: Systems,
+        elec_embeddings: Float[Array, 'electrons dim'],
+    ):
+        assert self.max_num_states is not None and self.max_num_states > 0, (
+            'max_num_states must be set'
+        )
+        if self.max_num_states > 1:
+            raise NotImplementedError(
+                'RestrictedSlater does not support excited states computation',
+            )
         assert systems.spins_are_identical, (
-            'Slater requires identical spins for all molecules'
+            'RestrictedSlater requires identical spins for all molecules'
         )
         n_up, n_down = systems.spins[0]
         n_orb, n_mols = max(n_up, n_down), systems.n_mols
         # Set envelopes output correctly
         diag = FixedOrbitals(
-            n_orb, self.determinants, self.envelope.copy(pi_init=1.0, keep_distr=False)
+            n_orb,
+            self.determinants,
+            self.envelope.copy(pi_init=1.0, keep_distr=False),
         )(systems, elec_embeddings)
         off = FixedOrbitals(
-            n_orb, self.determinants, self.envelope.copy(pi_init=0.1, keep_distr=True)
+            n_orb,
+            self.determinants,
+            self.envelope.copy(pi_init=0.1, keep_distr=True),
         )(systems, elec_embeddings)
 
         diag = einops.rearrange(
@@ -144,5 +178,5 @@ class RestrictedSlater(Slater):
                     jnp.concatenate([du, dd], axis=-1),
                 ],
                 axis=-2,
-            )
+            ),
         )

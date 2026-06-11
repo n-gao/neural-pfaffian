@@ -4,7 +4,6 @@ import jax
 import jax._src.scipy.sparse.linalg as jssl
 import jax.lax as lax
 import jax.numpy as jnp
-import jax.tree_util as jtu
 import numpy as np
 
 
@@ -25,11 +24,12 @@ def cg_solve(
     gaps = jnp.where(gaps > steps, steps, gaps)
 
     def cond_fun(value):
-        x, r, gamma, p, k, cache = value
+        _x, _r, _gamma, _p, k, cache = value
         gap = gaps[k]
         k = k - 1
         relative_still = jnp.logical_and(
-            jnp.abs((cache[k] - cache[k - gap]) / cache[k]) < eps * gap, gap >= 1
+            jnp.abs((cache[k] - cache[k - gap]) / cache[k]) < eps * gap,
+            gap >= 1,
         )
         over_max = k >= maxiter
         # We check that we are after the third iteration because the first ones may have close to 0 error.
@@ -49,8 +49,9 @@ def cg_solve(
 
         Ax = jssl._add(r_, b)
 
-        val = jtu.tree_reduce(
-            jnp.add, jtu.tree_map(lambda a, b, c: jnp.vdot(a - b, c), Ax, b, x_)
+        val = jax.tree.reduce(
+            jnp.add,
+            jax.tree.map(lambda a, b, c: jnp.vdot(a - b, c), Ax, b, x_),
         )
         cache_ = cache.at[k].set(val)
         return x_, r_, gamma_, p_, k + 1, cache_
@@ -118,12 +119,12 @@ def cg(
         jax.Array: b
     """
     if x0 is None:
-        x0 = jtu.tree_map(jnp.zeros_like, b)
+        x0 = jax.tree.map(jnp.zeros_like, b)
 
     b, x0 = jax.device_put((b, x0))
 
     if maxiter is None:
-        size = sum(bi.size for bi in jtu.tree_leaves(b))
+        size = sum(bi.size for bi in jax.tree.leaves(b))
         maxiter = 10 * size
 
     if M is None:
@@ -131,16 +132,16 @@ def cg(
     A = jssl._normalize_matvec(A)
     M = jssl._normalize_matvec(M)
 
-    if jtu.tree_structure(x0) != jtu.tree_structure(b):
+    if jax.tree.structure(x0) != jax.tree.structure(b):
         raise ValueError(
             'x0 and b must have matching tree structure: '
-            f'{jtu.tree_structure(x0)} vs {jtu.tree_structure(b)}'
+            f'{jax.tree.structure(x0)} vs {jax.tree.structure(b)}',
         )
 
     if jssl._shapes(x0) != jssl._shapes(b):
         raise ValueError(
             'arrays in x0 and b must have matching shapes: '
-            f'{jssl._shapes(x0)} vs {jssl._shapes(b)}'
+            f'{jssl._shapes(x0)} vs {jssl._shapes(b)}',
         )
 
     if fixed_iter:
@@ -160,9 +161,13 @@ def cg(
     def real_valued(x):
         return not issubclass(x.dtype.type, np.complexfloating)
 
-    symmetric = all(map(real_valued, jtu.tree_leaves(b)))
+    symmetric = all(map(real_valued, jax.tree.leaves(b)))
     x = lax.custom_linear_solve(
-        A, b, solve=solve, transpose_solve=solve, symmetric=symmetric
+        A,
+        b,
+        solve=solve,
+        transpose_solve=solve,
+        symmetric=symmetric,
     )
     info = None
     return x, info

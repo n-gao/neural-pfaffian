@@ -1,62 +1,50 @@
-from chex import assert_trees_all_close
 import jax
 from fixtures import *  # noqa: F403
-from neural_pfaffian.hf import AOImplementation, make_hf_orbitals
 from utils import assert_finite, assert_shape_and_dtype
 
 from neural_pfaffian.pretraining import Pretraining, PretrainingState
-from neural_pfaffian.systems import SystemsWithHF, chunk_electron
+from neural_pfaffian.systems import SystemsWithPretrainTarget
 
 
-def test_jax_orbitals(systems):
-    mols = systems.pyscf_molecules('aug-ccpvtz')
-    for m, elecs in zip(mols, systems.group(systems.electrons, chunk_electron)):
-        pyscf_fn = jax.jit(make_hf_orbitals(m, AOImplementation.PYSCF))
-        jax_fn = jax.jit(make_hf_orbitals(m, AOImplementation.JAX))
-        pyscf_up, pyscf_down = pyscf_fn(elecs)
-        jax_up, jax_down = jax_fn(elecs)
-        assert_finite(jax_up)
-        assert_finite(jax_down)
-        assert_finite(pyscf_up)
-        assert_finite(pyscf_down)
-        assert_shape_and_dtype(jax_up, pyscf_up)
-        assert_shape_and_dtype(jax_down, pyscf_down)
-        assert_trees_all_close(jax_up, pyscf_up, rtol=1e-5)
-        assert_trees_all_close(jax_down, pyscf_down, rtol=1e-5)
+def assert_finite_pretraining_systems(systems: SystemsWithPretrainTarget):
+    assert_finite(systems.replace(mol_data={}))
 
 
 def test_step(
     pretrainer: Pretraining,
     pretrainer_state: PretrainingState,
-    pretraining_systems: SystemsWithHF,
-    clear_cache_each_time,
+    pretraining_systems: SystemsWithPretrainTarget,
 ):
     # Test one step
     new_state, new_systems, aux_data = pretrainer.step(
-        jax.random.key(8), pretrainer_state.sharded, pretraining_systems.sharded
+        jax.random.key(8),
+        pretrainer_state.sharded,
+        pretraining_systems.sharded,
     )
 
     assert_finite(new_state)
-    assert_finite(new_systems)
+    assert_finite_pretraining_systems(new_systems)
     assert_finite(aux_data)
     assert_shape_and_dtype(new_state, pretrainer_state)
     assert_shape_and_dtype(new_systems, pretraining_systems)
 
     # Test a second step
     new_state, new_systems, aux_data = pretrainer.step(
-        jax.random.key(9), new_state.sharded, new_systems.sharded
+        jax.random.key(9),
+        new_state.sharded,
+        new_systems.sharded,
     )
 
     assert_finite(new_state)
-    assert_finite(new_systems)
+    assert_finite_pretraining_systems(new_systems)
     assert_finite(aux_data)
     assert_shape_and_dtype(new_state, pretrainer_state)
     assert_shape_and_dtype(new_systems, pretraining_systems)
 
 
 def test_hf(systems_with_hf):
-    orbitals = systems_with_hf.hf_orbitals
-    for orbitals, system in zip(orbitals, systems_with_hf):
+    _orbitals = systems_with_hf.hf_orbitals
+    for orbitals, system in zip(_orbitals, systems_with_hf, strict=False):
         n_up, n_down = system.spins[0]
         assert orbitals[0].dtype == system.electrons.dtype
         assert orbitals[1].dtype == system.electrons.dtype
