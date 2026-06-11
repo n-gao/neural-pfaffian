@@ -1,5 +1,5 @@
 import functools
-from typing import Generic, Literal, TypeVar
+from typing import Generic, Literal, TypeVar, get_args
 
 import jax
 import jax.flatten_util as jfu
@@ -33,6 +33,10 @@ COrb = TypeVar('COrb')
 OS = TypeVar('OS')
 """Orbital state type"""
 S = TypeVar('S', bound=Systems)
+
+PenaltyType = Literal['minimize', 'snap']
+"""Spin-penalty variants supported by :class:`SpinPenalty`."""
+
 _SPIN_BETA = 'spin_beta'
 _SPIN_EMA = 'spin_ema'
 
@@ -49,7 +53,7 @@ class SpinPenalty(Generic[O, COrb, OS, S], PyTreeNode):
         pytree_node=False,
     )
     max_grad_norm: float = 1.0
-    penalty_type: Literal['minimize', 'snap'] = 'minimize'
+    penalty_type: PenaltyType = 'minimize'
     spin_ema_decay: Schedule = field(
         default_factory=lambda: get_schedule(0.9),
         pytree_node=False,
@@ -59,11 +63,11 @@ class SpinPenalty(Generic[O, COrb, OS, S], PyTreeNode):
     def create(
         cls,
         penalty_scale: ScheduleConfig,
-        penalty_type: Literal['minimize', 'snap'],
+        penalty_type: PenaltyType,
         spin_ema_decay: ScheduleConfig,
         **kwargs,
     ):
-        assert penalty_type in ['minimize', 'snap'], (
+        assert penalty_type in get_args(PenaltyType), (
             f'Unknown penalty_type: {penalty_type}'
         )
         return cls(

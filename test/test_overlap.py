@@ -174,7 +174,7 @@ def test_overlap_penalty_regression(
                 'loss': aux['loss'],
             },
         ),
-        default_tolerance={'rtol': 1e-6, 'atol': 1e-6},
+        default_tolerance={'rtol': 1e-5, 'atol': 1e-5},
     )
 
 

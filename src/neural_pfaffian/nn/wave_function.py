@@ -90,18 +90,6 @@ class AntisymmetrizerP(Protocol[Orb, COrb, S]):
 
 
 class JastrowP(Protocol):
-    def init(
-        self,
-        key: Array,
-        systems: Systems,
-        elec_embeddings: ElecEmbedding,
-    ) -> Parameters: ...
-    def apply(
-        self,
-        params: Parameters,
-        systems: Systems,
-        elec_embeddings: ElecEmbedding,
-    ) -> SignedLogAmplitude: ...
     def __call__(
         self,
         systems: Systems,

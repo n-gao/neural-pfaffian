@@ -5,10 +5,16 @@ from fixtures import *  # noqa: F403
 from utils import assert_finite
 
 from neural_pfaffian.clipping import NoneClipping, NoneMasking
-from neural_pfaffian.spin_operator import _SPIN_EMA, SpinPenalty
+from neural_pfaffian.spin_operator import _SPIN_EMA, PenaltyType, SpinPenalty
 
 
-def _spin_setup(wave_function, params, systems, *, penalty_type='minimize'):
+def _spin_setup(
+    wave_function,
+    params,
+    systems,
+    *,
+    penalty_type: PenaltyType = 'minimize',
+):
     penalty = SpinPenalty(
         wave_function=wave_function,
         sample_masking=NoneMasking(),

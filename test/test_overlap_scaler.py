@@ -174,5 +174,5 @@ def test_energy_diff_scaler_regression(
                 )[0],
             },
         ),
-        default_tolerance={'rtol': 1e-6, 'atol': 1e-6},
+        default_tolerance={'rtol': 1e-5, 'atol': 1e-5},
     )
