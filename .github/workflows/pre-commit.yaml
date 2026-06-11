@@ -16,6 +16,8 @@ jobs:
         with:
           version: "0.4.30"
           enable-cache: true
+      - name: Create virtual environment
+        run: uv sync
       - name: Install pre-commit
         run: uv tool install pre-commit --with pre-commit-uv
       - name: Run pre-commit
