@@ -40,6 +40,22 @@ def test_equivariance(embedding_fwdpass, embedding_params, systems):
     assert_allclose(emb, permuted_emb, atol=1e-6)
 
 
+def test_equivariance_full_permutation(embedding_fwdpass, embedding_params, systems):
+    # Random permutation within every (molecule, spin) block
+    rng = np.random.default_rng(0)
+    perm = np.arange(systems.n_elec)
+    offset = 0
+    for n_up, n_down in systems.spins:
+        for n in (n_up, n_down):
+            perm[offset : offset + n] = rng.permutation(perm[offset : offset + n])
+            offset += n
+    emb = embedding_fwdpass(embedding_params, systems)
+    permuted_emb = embedding_fwdpass(
+        embedding_params, systems.replace(electrons=systems.electrons[perm])
+    )
+    assert_allclose(np.asarray(emb)[perm], np.asarray(permuted_emb), atol=1e-6)
+
+
 def test_param_dtype(embedding_params):
     assert_not_float64(embedding_params)
 

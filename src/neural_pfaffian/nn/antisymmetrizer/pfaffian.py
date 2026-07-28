@@ -15,7 +15,7 @@ from neural_pfaffian.hf import HFOrbitals
 from neural_pfaffian.linalg import (
     cayley_transform,
     skewsymmetric_quadratic,
-    slog_pfaffian,
+    slog_pfaffian_bordered_quadratic,
     slog_pfaffian_skewsymmetric_quadratic,
     to_skewsymmetric_orthogonal,
 )
@@ -41,6 +41,8 @@ class PfaffianOrbitals(PyTreeNode):
     orbitals: Float[Array, 'mols det elec orbitals']
     antisymmetrizer: Float[Array, 'mols det orbitals orbitals']
     orb_A_orb_product: Float[Array, 'mols det elec elec']
+    # border vector for odd electron counts, None otherwise
+    fill: Float[Array, 'mols det elec 1'] | None = None
 
 
 def max_orbitals(orb_per_charge: dict[str, int]):
@@ -247,12 +249,14 @@ class Pfaffian(
                 # Product
                 orb_A_orb_product = skewsymmetric_quadratic(orbitals, A)
                 # Pad additional orbital if n_elec is odd
+                fill_vec = None
                 if n_elec % 2 == 1:
-                    fill = einops.einsum(fill, 'elec orb -> elec')
+                    border = einops.einsum(fill, 'elec orb -> elec')
                     orb_A_orb_product = block(
-                        orb_A_orb_product, fill, -fill, jnp.zeros((), dtype=fill.dtype)
+                        orb_A_orb_product, border, -border, jnp.zeros((), dtype=fill.dtype)
                     )
-                return PfaffianOrbitals(orbitals, A, orb_A_orb_product)
+                    fill_vec = border[:, None]
+                return PfaffianOrbitals(orbitals, A, orb_A_orb_product, fill_vec)
 
             result.append(_orbitals(diag, offdiag, A, fill))
         return result
@@ -266,8 +270,11 @@ class Pfaffian(
                     orb.orbitals, orb.antisymmetrizer
                 )
             else:
-                # We need to act on the padded version
-                sign, logpsi = slog_pfaffian(orb.orb_A_orb_product)
+                # Odd electron counts act on the bordered version
+                assert orb.fill is not None
+                sign, logpsi = slog_pfaffian_bordered_quadratic(
+                    orb.orbitals, orb.fill[..., 0], orb.antisymmetrizer
+                )
             logpsi, sign = jax.nn.logsumexp(logpsi, axis=1, b=sign, return_sign=True)
             signs.append(sign)
             logpsis.append(logpsi)

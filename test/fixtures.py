@@ -8,7 +8,7 @@ import pytest
 from neural_pfaffian.clipping import MedianClipping
 from neural_pfaffian.mcmc import MetropolisHastings
 from neural_pfaffian.nn.antisymmetrizer.slater import RestrictedSlater
-from neural_pfaffian.nn.embedding import FermiNet, PsiFormer, Moon
+from neural_pfaffian.nn.embedding import FermiNet, FiRE, PsiFormer, Moon
 from neural_pfaffian.nn.antisymmetrizer import Pfaffian, Slater
 from neural_pfaffian.nn.embedding.psiformer import AttentionImplementation
 from neural_pfaffian.nn.envelope import EfficientEnvelope, FullEnvelope
@@ -136,9 +136,20 @@ def moon():
     )
 
 
+@pytest.fixture(scope='module')
+def fire():
+    return FiRE(
+        embedding_dim=4,
+        filter_hidden_dim=4,
+        filter_dim=2,
+        n_envelopes=2,
+        activation=jnp.tanh,
+    )
+
+
 @pytest.fixture(
     scope='module',
-    params=['ferminet', 'psiformer_iterative', 'psiformer_parallel', 'moon'],
+    params=['ferminet', 'psiformer_iterative', 'psiformer_parallel', 'moon', 'fire'],
 )
 def embedding_model(request):
     return request.getfixturevalue(request.param)
