@@ -8,8 +8,8 @@ import pytest
 from neural_pfaffian.clipping import MedianClipping
 from neural_pfaffian.mcmc import MetropolisHastings
 from neural_pfaffian.nn.antisymmetrizer.slater import RestrictedSlater
-from neural_pfaffian.nn.embedding import FermiNet, FiRE, PsiFormer, Moon
-from neural_pfaffian.nn.antisymmetrizer import Pfaffian, Slater
+from neural_pfaffian.nn.embedding import FermiNet, FiRE, FiRELocal, PsiFormer, Moon
+from neural_pfaffian.nn.antisymmetrizer import FermiSets, Pfaffian, Slater
 from neural_pfaffian.nn.embedding.psiformer import AttentionImplementation
 from neural_pfaffian.nn.envelope import EfficientEnvelope, FullEnvelope
 from neural_pfaffian.nn.jastrow import CuspJastrow, MLPJastrow
@@ -147,9 +147,27 @@ def fire():
     )
 
 
+@pytest.fixture(scope='module')
+def fire_local():
+    return FiRELocal(
+        embedding_dim=4,
+        filter_hidden_dim=4,
+        filter_dim=2,
+        n_envelopes=2,
+        activation=jnp.tanh,
+    )
+
+
 @pytest.fixture(
     scope='module',
-    params=['ferminet', 'psiformer_iterative', 'psiformer_parallel', 'moon', 'fire'],
+    params=[
+        'ferminet',
+        'psiformer_iterative',
+        'psiformer_parallel',
+        'moon',
+        'fire',
+        'fire_local',
+    ],
 )
 def embedding_model(request):
     return request.getfixturevalue(request.param)
@@ -207,7 +225,40 @@ def restricted_slater(envelope):
     return RestrictedSlater(2, envelope)
 
 
-@pytest.fixture(scope='module', params=['pfaffian', 'slater', 'restricted_slater'])
+def _fermi_sets(envelope, post_layers: int):
+    return FermiSets(
+        determinants=2,
+        envelope=envelope,
+        embedding_dim=4,
+        filter_hidden_dim=4,
+        filter_dim=2,
+        n_envelopes=2,
+        hidden_dims=[4],
+        activation=jnp.tanh,
+        post_layers=post_layers,
+    )
+
+
+@pytest.fixture(scope='module')
+def fermi_sets(envelope):
+    return _fermi_sets(envelope, 0)
+
+
+@pytest.fixture(scope='module')
+def fermi_sets_post(envelope):
+    return _fermi_sets(envelope, 1)
+
+
+@pytest.fixture(
+    scope='module',
+    params=[
+        'pfaffian',
+        'slater',
+        'restricted_slater',
+        'fermi_sets',
+        'fermi_sets_post',
+    ],
+)
 def antisymmetrizer(request, envelope):
     # envelope must be here since the antisymmetrizer depend on it
     return request.getfixturevalue(request.param)
@@ -237,9 +288,19 @@ def singular_restricted_slater(efficient_envelope):
     return RestrictedSlater(2, efficient_envelope)
 
 
+@pytest.fixture(scope='module')
+def singular_fermi_sets(efficient_envelope):
+    return _fermi_sets(efficient_envelope, 0)
+
+
 @pytest.fixture(
     scope='module',
-    params=['singular_pfaffian', 'singular_slater', 'singular_restricted_slater'],
+    params=[
+        'singular_pfaffian',
+        'singular_slater',
+        'singular_restricted_slater',
+        'singular_fermi_sets',
+    ],
 )
 def singular_antisymmetrizer(request, efficient_envelope):
     # envelope must be here since orbitals depend on it
@@ -284,10 +345,10 @@ def wave_function(moon, antisymmetrizer, jastrow_models):
 @pytest.fixture(scope='module')
 def wf_params(wave_function: WaveFunction, systems: Systems):
     if (
-        isinstance(wave_function.antisymmetrizer, (Slater, RestrictedSlater))
+        isinstance(wave_function.antisymmetrizer, (Slater, FermiSets))
         and systems.n_mols > 1
     ):
-        pytest.skip('Slater requires identical spins for all molecules')
+        pytest.skip('full determinants require identical spins for all molecules')
     return wave_function.init(jax.random.key(42), systems)
 
 
@@ -474,11 +535,8 @@ def vmc_systems(vmc: VMC, batched_systems: Systems):
 
 @pytest.fixture(scope='module')
 def pretrain_wf(singular_antisymmetrizer, moon, double_jastrow, meta_gnn, systems):
-    if (
-        isinstance(singular_antisymmetrizer, (Slater, RestrictedSlater))
-        and systems.n_mols > 1
-    ):
-        pytest.skip('Slater requires identical spins for all molecules')
+    if isinstance(singular_antisymmetrizer, (Slater, FermiSets)) and systems.n_mols > 1:
+        pytest.skip('full determinants require identical spins for all molecules')
     return GeneralizedWaveFunction.create(
         WaveFunction(moon, singular_antisymmetrizer, double_jastrow),
         meta_gnn,

@@ -1,0 +1,36 @@
+wave_function:
+  embedding:
+    module: firelocal
+    args:
+      firelocal:
+        embedding_dim: 256
+        filter_hidden_dim: 64
+        filter_dim: 32
+        n_envelopes: 8
+        n_layer: 2
+        activation: silu
+  envelope:
+    module: full
+  orbitals:
+    module: fermisets
+    args:
+      fermisets:
+        determinants: 4
+        embedding_dim: 64
+        filter_hidden_dim: 32
+        filter_dim: 16
+        n_envelopes: 8
+        hidden_dims: [64]
+        post_layers: 0
+        activation: silu
+  jastrows:
+    - - cusp
+      - {}
+  meta_network:
+    module: null
+
+pretraining:
+  epochs: 100_000
+  basis: sto-6g
+  reparam_loss_scale: 0.0
+  sample_from: hf

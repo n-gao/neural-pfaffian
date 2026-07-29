@@ -279,13 +279,15 @@ inv_skewsymmetric_quadratic = jit(inv_skewsymmetric_quadratic)
 # Here we define the functions for folx such that we can use the forward-laplacian
 if folx is not None:
     from folx.api import FunctionFlags, FwdJacobian, FwdLaplArray
-    from folx.custom_hessian import slogdet_jac_hessian_jac
 
     from neural_pfaffian.kernels import (
         pfaffian_fwd_lapl,
         pfaffian_fwd_lapl_bordered,
         pfaffian_fwd_lapl_config,
     )
+
+    # folx >=0.2.26 always joins the jacobian and laplacian jvp
+    JOIN_JVP = getattr(FunctionFlags, 'JOIN_JVP', FunctionFlags.GENERAL)
 
     def skewsymmetric_quadratic_jac_hessian_jac(
         args,
@@ -307,13 +309,16 @@ if folx is not None:
         merge,
         materialize_idx,
     ):
-        signs, logdet = slogdet_jac_hessian_jac(
-            args,
-            extra_args,
-            merge,
-            materialize_idx,
+        # log|pf A| = log|det A| / 2, so the JHJ trace of slogdet is halved
+        A = args.x[0]
+        A_inv = jnp.linalg.inv(A)
+        M = jnp.einsum(
+            '...ij,k...jd->k...id',
+            A_inv,
+            args.jacobian[0].construct_jac_for(materialize_idx),
         )
-        return signs, logdet / 2
+        trace = -jnp.einsum('k...id,k...di->...', M, M) / 2
+        return jnp.zeros(A.shape[:-2], dtype=trace.dtype), trace
 
     def folx_slog_pfaffian(args, kwargs, sparsity_threshold: int):
         fwd_lapl_fn = folx.wrap_forward_laplacian(
@@ -564,7 +569,7 @@ if folx is not None:
         folx.wrap_forward_laplacian(
             skewsymmetric_quadratic,
             name='skewsymmetric_quadratic',
-            flags=FunctionFlags.JOIN_JVP,
+            flags=JOIN_JVP,
             custom_jac_hessian_jac=skewsymmetric_quadratic_jac_hessian_jac,
         ),
     )

@@ -45,6 +45,24 @@ class SlaterOrbitals(PyTreeNode):
     orbitals: Float[Array, 'n_mols n_det n_elec n_elec']
 
 
+def hf_orbital_loss(
+    hf_orbitals: Sequence[HFOrbitals],
+    orbitals: Float[Array, 'n_mols n_det n_elec n_elec'],
+):
+    """Mean squared error between full determinant orbitals and HF orbitals.
+
+    Args:
+        hf_orbitals: Hartree-Fock orbitals, one entry per molecule.
+        orbitals: Orbital matrices grouped by molecule.
+
+    Returns:
+        The mean squared error.
+    """
+    hf_up, hf_down = jtu.tree_map(lambda *x: jnp.stack(x, axis=1), *hf_orbitals)
+    hf_full = hf_to_full(hf_up, hf_down)[..., None, :, :]
+    return ((orbitals - hf_full) ** 2).mean()
+
+
 class Slater(ReparamModule, AntisymmetrizerP[SlaterOrbitals, None]):
     determinants: int
     envelope: Envelope
@@ -100,9 +118,7 @@ class Slater(ReparamModule, AntisymmetrizerP[SlaterOrbitals, None]):
         orbitals: SlaterOrbitals,  # grouped by molecules
         state: Sequence[None],  # list of molecules
     ):
-        hf_up, hf_down = jtu.tree_map(lambda *x: jnp.stack(x, axis=1), *hf_orbitals)
-        hf_full = hf_to_full(hf_up, hf_down)[..., None, :, :]
-        return ((orbitals.orbitals - hf_full) ** 2).mean(), tuple(state)
+        return hf_orbital_loss(hf_orbitals, orbitals.orbitals), tuple(state)
 
     def init_systems(self, key: Array, systems: SystemsWithHF):
         return systems.replace(cache=tuple([None] * systems.n_mols))

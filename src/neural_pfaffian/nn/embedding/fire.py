@@ -88,6 +88,9 @@ class FiREElecInit(ReparamModule):
 
     Every output depends on a single electron (and the fixed nuclei), so the
     jacobian w.r.t. electron positions stays 3-sparse through this stage.
+
+    Besides the initial embedding, `n_messages` per-electron vectors are
+    projected for the subsequent electron-electron pair messages.
     """
 
     embedding_dim: int
@@ -95,6 +98,7 @@ class FiREElecInit(ReparamModule):
     filter_dim: int
     n_envelopes: int
     activation: ActivationOrName
+    n_messages: int = 4
 
     @nn.compact
     def __call__(
@@ -127,9 +131,67 @@ class FiREElecInit(ReparamModule):
         )
         h = values * jax.nn.silu(gates)
         h = activation(nn.Dense(self.embedding_dim)(h))
-        # initial embedding and the four pair-message vectors in one projection
-        out = jnp.split(nn.Dense(5 * self.embedding_dim)(h), 5, axis=-1)
+        # initial embedding and the pair-message vectors in one projection
+        n_out = 1 + self.n_messages
+        out = jnp.split(nn.Dense(n_out * self.embedding_dim)(h), n_out, axis=-1)
         return out[0], tuple(out[1:])
+
+
+class FiREPairMessages(nn.Module):
+    """Electron-electron pair messages, one filter per spin block.
+
+    The messages are returned unaggregated: each of them depends on two
+    electrons only, so the jacobian stays 6-sparse until a caller reduces them.
+    """
+
+    embedding_dim: int
+    filter_hidden_dim: int
+    filter_dim: int
+    n_envelopes: int
+    activation: ActivationOrName
+
+    @nn.compact
+    def __call__(
+        self, systems: Systems, messages: tuple[ElecEmbedding, ...]
+    ) -> list[tuple[Float[Array, 'n_pairs embedding_dim'], npt.NDArray[np.int64]]]:
+        """Computes the pair messages of both spin blocks.
+
+        Args:
+            systems: The systems to compute the messages for.
+            messages: The four per-electron message vectors of `FiREElecInit`,
+                ordered center/neighbor times same/different spin.
+
+        Returns:
+            List of (messages, receiver index) per spin block.
+        """
+        activation = Activation(self.activation)
+        msg_ct_same, msg_ct_diff, msg_nb_same, msg_nb_diff = messages
+        r_ij = systems.elec_elec_dists
+        i, j, _ = systems.elec_elec_idx
+        n_same = systems.n_elec_pair_same
+        spin_blocks = (
+            (slice(None, n_same), msg_ct_same, msg_nb_same),
+            (slice(n_same, None), msg_ct_diff, msg_nb_diff),
+        )
+
+        result = []
+        for block, msg_ct, msg_nb in spin_blocks:
+            edges = r_ij[block]
+            beta = FiREFilter(
+                self.filter_hidden_dim,
+                self.filter_dim,
+                self.n_envelopes,
+                self.activation,
+            )(systems, edges)
+            gamma = nn.Dense(self.embedding_dim, use_bias=False)(beta)
+            features = nn.Dense(self.embedding_dim)(log1p_rescale(edges))
+            result.append(
+                (
+                    gamma * activation(features + msg_ct[i[block]] + msg_nb[j[block]]),
+                    i[block],
+                )
+            )
+        return result
 
 
 class FiRE(nn.Module, EmbeddingP):
@@ -150,7 +212,7 @@ class FiRE(nn.Module, EmbeddingP):
     @nn.compact
     def __call__(self, systems: Systems) -> ElecEmbedding:
         activation = Activation(self.activation)
-        h0, (msg_ct_same, msg_ct_diff, msg_nb_same, msg_nb_diff) = FiREElecInit(
+        h, msgs = FiREElecInit(
             self.embedding_dim,
             self.filter_hidden_dim,
             self.filter_dim,
@@ -158,31 +220,16 @@ class FiRE(nn.Module, EmbeddingP):
             self.activation,
         )(systems)
 
-        r_ij = systems.elec_elec_dists
-        i, j, _ = systems.elec_elec_idx
-        n_same = systems.n_elec_pair_same
-        spin_blocks = (
-            (slice(None, n_same), msg_ct_same, msg_nb_same),
-            (slice(n_same, None), msg_ct_diff, msg_nb_diff),
-        )
-
-        h = h0
-        for block, msg_ct, msg_nb in spin_blocks:
-            edges = r_ij[block]
-            beta = FiREFilter(
-                self.filter_hidden_dim,
-                self.filter_dim,
-                self.n_envelopes,
-                self.activation,
-            )(systems, edges)
-            gamma = nn.Dense(self.embedding_dim, use_bias=False)(beta)
-            features = nn.Dense(self.embedding_dim)(log1p_rescale(edges))
-            # pair message depends on electrons i and j only (6-sparse jacobian)
-            messages = gamma * activation(
-                features + msg_ct[i[block]] + msg_nb[j[block]]
-            )
+        pair_messages = FiREPairMessages(
+            self.embedding_dim,
+            self.filter_hidden_dim,
+            self.filter_dim,
+            self.n_envelopes,
+            self.activation,
+        )(systems, msgs)
+        for messages, idx in pair_messages:
             # aggregation to electrons; the jacobian is dense from here on
-            h = h + segment_sum(messages, i[block], systems.n_elec)
+            h = h + segment_sum(messages, idx, systems.n_elec)
 
         h = DataScale()(h)
         h = nn.Dense(self.embedding_dim)(h)
@@ -190,3 +237,37 @@ class FiRE(nn.Module, EmbeddingP):
         h = nn.Dense(self.embedding_dim)(h)
         h = DataScale()(h)
         return h
+
+
+class FiRELocal(nn.Module, EmbeddingP):
+    """FiRE embedding restricted to the nucleus-electron stage.
+
+    Without electron-electron message passing every feature depends on a single
+    electron, so the jacobian stays 3-sparse and the per-electron layers cost
+    O(n_elec) rather than O(n_elec^2) in the forward laplacian.
+    """
+
+    embedding_dim: int
+    filter_hidden_dim: int
+    filter_dim: int
+    n_envelopes: int
+    activation: ActivationOrName
+    n_layer: int = 1
+
+    @nn.compact
+    def __call__(self, systems: Systems) -> ElecEmbedding:
+        activation = Activation(self.activation)
+        h, _ = FiREElecInit(
+            self.embedding_dim,
+            self.filter_hidden_dim,
+            self.filter_dim,
+            self.n_envelopes,
+            self.activation,
+            n_messages=0,
+        )(systems)
+        h = DataScale()(h)
+        for _ in range(self.n_layer):
+            h = h + nn.Dense(self.embedding_dim)(
+                activation(nn.Dense(self.embedding_dim)(h))
+            )
+        return DataScale()(h)
